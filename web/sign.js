@@ -339,6 +339,7 @@ const ctx = pad.getContext('2d');
 let drawing = false;
 let hasInk = false;
 let lastPt = null;
+let lastMid = null; // where the previous curve segment ended
 
 function openPad() {
   show($('padSheet'), true);
@@ -374,30 +375,54 @@ pad.addEventListener('pointerdown', (e) => {
   pad.setPointerCapture(e.pointerId);
   drawing = true;
   lastPt = padPoint(e);
+  lastMid = lastPt;
   // A dot, so a simple tap still leaves a mark.
   ctx.beginPath();
-  ctx.arc(lastPt.x, lastPt.y, 1.3, 0, Math.PI * 2);
+  ctx.arc(lastPt.x, lastPt.y, ctx.lineWidth / 2, 0, Math.PI * 2);
   ctx.fillStyle = '#0b1730';
   ctx.fill();
   hasInk = true;
 });
 
+function drawTo(p) {
+  // Quadratic smoothing: each segment runs from the previous midpoint, through
+  // the last raw point as the control, to the new midpoint. Starting at
+  // lastMid (not lastPt) is what makes the segments join — starting at lastPt
+  // leaves half of every segment undrawn, which renders as a dashed line.
+  const mid = { x: (lastPt.x + p.x) / 2, y: (lastPt.y + p.y) / 2 };
+  ctx.beginPath();
+  ctx.moveTo(lastMid.x, lastMid.y);
+  ctx.quadraticCurveTo(lastPt.x, lastPt.y, mid.x, mid.y);
+  ctx.stroke();
+  lastMid = mid;
+  lastPt = p;
+  hasInk = true;
+}
+
 pad.addEventListener('pointermove', (e) => {
   if (!drawing) return;
   e.preventDefault();
-  const p = padPoint(e);
-  // Quadratic smoothing through the midpoint keeps strokes from looking jagged.
-  const mid = { x: (lastPt.x + p.x) / 2, y: (lastPt.y + p.y) / 2 };
-  ctx.beginPath();
-  ctx.moveTo(lastPt.x, lastPt.y);
-  ctx.quadraticCurveTo(lastPt.x, lastPt.y, mid.x, mid.y);
-  ctx.stroke();
-  lastPt = p;
-  hasInk = true;
+  // Fast strokes deliver several positions per frame; using them all keeps a
+  // quick flick smooth instead of angular.
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of events.length ? events : [e]) drawTo(padPoint(ev));
 });
 
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
-  pad.addEventListener(ev, () => { drawing = false; });
+function endStroke() {
+  if (!drawing) return;
+  // Close the gap between the final midpoint and where the finger actually
+  // lifted, otherwise every stroke ends slightly short.
+  ctx.beginPath();
+  ctx.moveTo(lastMid.x, lastMid.y);
+  ctx.lineTo(lastPt.x, lastPt.y);
+  ctx.stroke();
+  drawing = false;
+}
+
+// No pointerleave here: the pad captures the pointer, so a finger straying
+// outside the box should keep drawing rather than cutting the stroke short.
+for (const ev of ['pointerup', 'pointercancel']) {
+  pad.addEventListener(ev, endStroke);
 }
 
 $('padClear').addEventListener('click', clearPad);
