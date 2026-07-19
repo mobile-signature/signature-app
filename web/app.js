@@ -302,6 +302,20 @@ $('list').addEventListener('click', async (e) => {
 
 /* ------------------------------------------------------------------ boot */
 
+// An unmissable, always-visible marker when this is the local copy. Both
+// copies look identical otherwise, and a link made here is dead for everyone
+// but this machine — that must be obvious before uploading, not after sharing.
+if (/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname)) {
+  const bar = document.createElement('div');
+  bar.textContent = 'LOCAL TEST COPY — links made here only work on this computer';
+  bar.style.cssText =
+    'position:sticky;top:0;z-index:999;background:#c0392b;color:#fff;' +
+    'font-size:12px;font-weight:700;text-align:center;padding:9px 12px;' +
+    'letter-spacing:0.02em;line-height:1.3';
+  document.body.prepend(bar);
+  document.title = `[LOCAL] ${document.title}`;
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
