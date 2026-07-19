@@ -170,6 +170,7 @@ $('send').addEventListener('click', async () => {
     $('linkOut').value = doc.signUrl;
     show($('sendCard'), false);
     show($('resultCard'), true);
+    warnIfLocalLink(doc.signUrl);
     loadQr(doc.signUrl);
     refreshList();
   } catch (err) {
@@ -189,6 +190,22 @@ $('newDoc').addEventListener('click', () => {
   show($('resultCard'), false);
   show($('sendCard'), true);
 });
+
+// A link built from localhost only resolves on the machine that made it. Sent
+// to anyone else it is dead on arrival, and nothing about the link itself says
+// so — hence the warning here rather than a silent copy button.
+function warnIfLocalLink(url) {
+  const box = $('localWarn');
+  const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(url);
+  if (!isLocal) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML =
+    '<div class="msg err"><b>This link only works on this computer.</b><br />' +
+    '"localhost" means "this device", so sending it to someone else will not ' +
+    'work. Create the link from your deployed address instead.</div>';
+}
 
 async function loadQr(url) {
   const box = $('linkQr');
