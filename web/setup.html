@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mobile Signature — Setup</title>
+  <meta name="theme-color" content="#3d7dfd" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .qr { background:#fff; padding:14px; border-radius:14px; width:250px; margin:0 auto; }
+    .qr svg { display:block; width:100%; height:auto; }
+    .step { display:flex; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); }
+    .step:last-child { border-bottom:0; }
+    .num { flex:none; width:26px; height:26px; border-radius:50%; background:var(--accent);
+           color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center;
+           justify-content:center; }
+    .step h3 { margin:0 0 3px; font-size:14px; font-weight:650; }
+    .step p { margin:0; font-size:13px; color:var(--muted); }
+    code.key { display:block; padding:11px 13px; background:var(--surface-2); border-radius:9px;
+               font-size:13px; word-break:break-all; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div style="flex:1">
+      <h1>Setup</h1>
+      <div class="sub">Get Mobile Signature onto your phone</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="warn"></div>
+
+    <section class="card" style="text-align:center">
+      <h2 style="margin:0 0 4px;font-size:16px" id="qrHint">Scan with your phone</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 14px" id="urlLine">Loading…</p>
+      <div class="qr" id="qr">
+        <div class="spinner" style="margin:100px auto"></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="secondary" id="copyUrl">Copy link</button>
+        <button id="openHere">Open here</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 4px;font-size:16px">Your API key</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0">
+        Paste this once, on your phone, to unlock the app. Keep it private —
+        anyone with it can send documents from your account.
+      </p>
+      <code class="key" id="apiKey">…</code>
+      <button class="secondary block" id="copyKey" style="margin-top:10px">Copy key</button>
+    </section>
+
+    <section class="card">
+      <h2 style="margin:0 0 8px;font-size:16px">Install on your phone</h2>
+
+      <div class="step">
+        <div class="num">1</div>
+        <div>
+          <h3>Scan the QR code above</h3>
+          <p>Point your phone camera at it and tap the link that appears.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <div>
+          <h3>Add it to your home screen</h3>
+          <p><strong>iPhone:</strong> in Safari, tap Share → Add to Home Screen.<br />
+             <strong>Android:</strong> in Chrome, tap Install, or Menu → Add to Home screen.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <div>
+          <h3>Unlock it with your API key</h3>
+          <p>Open the new icon, paste the key from above, and tap Unlock. Once only.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <div>
+          <h3>Send something to sign</h3>
+          <p>Pick a PDF, choose a photo, or tap “Take a photo” to capture a paper
+             document. Share the link that comes back.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    fetch('/api/setup-info')
+      .then((r) => r.json())
+      .then(async (info) => {
+        $('urlLine').textContent = info.publicUrl;
+        $('apiKey').textContent = info.apiKey;
+
+        if (!info.tunnelled) {
+          // Local mode is a deliberate choice, not a fault — say so calmly.
+          $('warn').innerHTML =
+            '<div class="msg info"><b>Running on this computer only.</b><br />' +
+            'Everything works here, and nothing is exposed to the internet. ' +
+            'The QR code below is for reference — phones cannot open a ' +
+            '<b>localhost</b> link. When you want it on your phone, close the ' +
+            'black window and run <b>setup.cmd</b> instead.</div>';
+          // A QR nobody can scan is just noise; point it at the app instead.
+          $('qrHint').textContent = 'Scan once you run setup.cmd';
+        }
+
+        const res = await fetch('/api/qr?text=' + encodeURIComponent(info.publicUrl));
+        $('qr').innerHTML = res.ok
+          ? await res.text()
+          : '<p style="color:#666;font-size:13px;padding:40px 0">QR unavailable</p>';
+
+        $('copyUrl').onclick = () => copy(info.publicUrl, $('copyUrl'), 'Copy link');
+        $('copyKey').onclick = () => copy(info.apiKey, $('copyKey'), 'Copy key');
+        $('openHere').onclick = () => { window.location.href = '/'; };
+      })
+      .catch(() => {
+        $('warn').innerHTML = '<div class="msg err">Could not reach the server.</div>';
+      });
+
+    async function copy(text, btn, label) {
+      try { await navigator.clipboard.writeText(text); } catch { /* denied */ }
+      btn.textContent = 'Copied';
+      setTimeout(() => (btn.textContent = label), 1500);
+    }
+  </script>
+</body>
+</html>

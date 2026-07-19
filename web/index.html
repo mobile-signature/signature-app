@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mobile Signature</title>
+  <meta name="theme-color" content="#3d7dfd" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Signature" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon-180.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="bar">
+    <div style="flex:1">
+      <h1>Mobile Signature</h1>
+      <div class="sub" id="serverSub">Send a PDF for signature</div>
+    </div>
+    <button class="ghost" id="signOut" style="flex:none;padding:8px 12px;font-size:13px">Sign out</button>
+  </header>
+
+  <main class="wrap">
+    <div id="msg"></div>
+
+    <!-- Unlock -->
+    <section id="authCard" class="card hidden">
+      <label for="apiKey">API key</label>
+      <input id="apiKey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+             placeholder="Paste the key printed by the server" />
+      <p style="font-size:12px;color:var(--muted)">
+        The server prints this on start-up and saves it to <code>data/api-key.txt</code>.
+        It is stored only on this device.
+      </p>
+      <button class="block" id="unlock">Unlock</button>
+    </section>
+
+    <!-- Send -->
+    <section id="sendCard" class="card hidden">
+      <label for="file">Document, photo or screenshot</label>
+      <input id="file" type="file" accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.heic,.heif" />
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="secondary" id="cameraBtn">📷 Take a photo</button>
+      </div>
+      <!-- Separate input: `capture` opens the camera directly on mobile. -->
+      <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden />
+      <div id="filePreview" class="hidden" style="margin-top:10px"></div>
+
+      <label for="title">Title</label>
+      <input id="title" type="text" placeholder="Rental agreement" />
+
+      <label for="signerName">Recipient name</label>
+      <input id="signerName" type="text" placeholder="Jane Doe" autocomplete="name" />
+
+      <label for="signerEmail">Recipient email (optional, for your records)</label>
+      <input id="signerEmail" type="email" placeholder="jane@example.com" autocomplete="off" />
+
+      <label for="accessCode">Access code (optional)</label>
+      <input id="accessCode" type="tel" inputmode="numeric" maxlength="10"
+             placeholder="e.g. 4821 — share it separately" />
+
+      <button class="block" id="send" style="margin-top:16px">Upload &amp; create signing link</button>
+    </section>
+
+    <!-- Result -->
+    <section id="resultCard" class="card hidden">
+      <h2 style="margin:0 0 4px;font-size:16px">Signing link ready</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
+        The recipient opens this in any mobile browser. Nothing to install.
+      </p>
+      <input id="linkOut" type="text" readonly />
+      <div class="row" style="margin-top:10px">
+        <button id="copyLink" class="secondary">Copy</button>
+        <button id="shareLink">Share</button>
+      </div>
+      <div id="linkQr" style="background:#fff;padding:12px;border-radius:12px;width:190px;margin:14px auto 0"></div>
+      <p style="font-size:12px;color:var(--muted);text-align:center;margin:8px 0 0">
+        Or let them scan this
+      </p>
+      <button class="ghost block" id="newDoc" style="margin-top:10px">Send another</button>
+    </section>
+
+    <!-- List -->
+    <section id="listCard" class="card hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h2 style="margin:0;font-size:16px">Documents</h2>
+        <button class="ghost" id="refresh" style="padding:7px 12px;font-size:13px">Refresh</button>
+      </div>
+      <div id="list"></div>
+    </section>
+  </main>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Mobile Signature",
+    "slug": "mobile-signature",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "mobilesignature",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f1216"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.mobilesignature"
+    },
+    "android": {
+      "package": "com.yourcompany.mobilesignature",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#3d7dfd"
+      },
+      "permissions": ["INTERNET", "READ_EXTERNAL_STORAGE"]
+    },
+    "extra": {
+      "serverUrl": "https://REPLACE-WITH-YOUR-DEPLOYED-URL"
+    }
+  }
+}

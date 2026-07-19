@@ -1,0 +1,57 @@
+# Render deployment blueprint.
+#
+# IMPORTANT — read the disk note below before using this for real documents.
+#
+# Deploy:
+#   1. Push this folder to a GitHub repository
+#   2. render.com -> New -> Blueprint -> pick the repo
+#   3. After the first deploy, set PUBLIC_URL to the URL Render gives you,
+#      then redeploy (links are built from PUBLIC_URL, so it must be correct)
+
+services:
+  - type: web
+    name: mobile-signature
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      # Generated once by Render and kept secret. This is your sender API key.
+      - key: API_KEY
+        generateValue: true
+
+      # Must match the public URL Render assigns, e.g.
+      # https://mobile-signature.onrender.com
+      # Set it in the dashboard after the first deploy, then redeploy.
+      - key: PUBLIC_URL
+        sync: false
+
+      - key: LINK_TTL_HOURS
+        value: "168"
+
+      - key: DATA_DIR
+        value: /var/data
+
+# ---------------------------------------------------------------------------
+# THE FREE PLAN HAS NO PERSISTENT DISK.
+#
+# On the free plan, /var/data is wiped whenever the service restarts, redeploys,
+# or wakes from sleep. Uploaded and signed documents WILL BE LOST, and signing
+# links your recipients already hold will stop working.
+#
+# Free is fine for testing that real phones can reach the app. It is NOT
+# suitable for documents that matter.
+#
+# For real use, switch to the Starter plan (~$7/month) and attach a disk by
+# changing `plan: free` to `plan: starter` and uncommenting:
+#
+#    disk:
+#      name: documents
+#      mountPath: /var/data
+#      sizeGB: 1
+#
+# Free instances also sleep after ~15 minutes idle; the first request afterwards
+# takes ~30 seconds to wake. A recipient opening your link may think it is
+# broken.
+# ---------------------------------------------------------------------------

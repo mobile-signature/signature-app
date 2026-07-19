@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Mobile Signature">
+  <rect width="512" height="512" rx="112" fill="#3d7dfd"/>
+  <rect x="136" y="92" width="240" height="300" rx="24" fill="#ffffff" opacity="0.95"/>
+  <rect x="172" y="140" width="168" height="16" rx="8" fill="#c6d4ee"/>
+  <rect x="172" y="180" width="168" height="16" rx="8" fill="#c6d4ee"/>
+  <rect x="172" y="220" width="110" height="16" rx="8" fill="#c6d4ee"/>
+  <path d="M168 330c34-8 52-46 76-72 12-13 22-9 20 8-3 26-24 55-10 66 16 12 40-22 62-34 16-9 30-4 38 8"
+        fill="none" stroke="#1b2b4b" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="168" y="404" width="176" height="14" rx="7" fill="#ffffff" opacity="0.6"/>
+</svg>

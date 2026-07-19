@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Sign document</title>
+  <meta name="theme-color" content="#3d7dfd" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="bar">
+    <div style="flex:1;min-width:0">
+      <h1 id="docTitle">Loading…</h1>
+      <div class="sub" id="docSub">Secure signing link</div>
+    </div>
+  </header>
+
+  <!-- Loading -->
+  <div id="loading" class="center">
+    <div class="spinner"></div>
+    Opening your document…
+  </div>
+
+  <!-- Access code gate -->
+  <main id="gate" class="wrap hidden">
+    <div class="card">
+      <h2 style="margin:0 0 4px;font-size:16px">Enter your access code</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 14px">
+        The sender shared a short code with you separately.
+      </p>
+      <div id="gateMsg"></div>
+      <input id="code" type="tel" inputmode="numeric" autocomplete="one-time-code"
+             maxlength="10" placeholder="••••" style="text-align:center;letter-spacing:6px;font-size:22px" />
+      <button class="block" id="codeGo" style="margin-top:12px">Open document</button>
+    </div>
+  </main>
+
+  <!-- Fatal error -->
+  <main id="fatal" class="wrap hidden">
+    <div class="card">
+      <h2 style="margin:0 0 6px;font-size:16px">Cannot open this document</h2>
+      <p id="fatalText" style="font-size:14px;color:var(--muted);margin:0"></p>
+      <button class="block" id="fatalRetry" style="margin-top:14px">Try again</button>
+    </div>
+  </main>
+
+  <!-- Viewer -->
+  <div id="viewer" class="hidden">
+    <div id="pages"></div>
+    <div id="hint" class="hint hidden"></div>
+    <div class="toolbar">
+      <button class="tool" data-tool="signature">✍️ Sign</button>
+      <button class="tool" data-tool="text">🔤 Text</button>
+      <button class="tool" data-tool="date">📅 Date</button>
+      <button class="tool" data-tool="check">✓ Check</button>
+      <button id="finish">Finish</button>
+    </div>
+  </div>
+
+  <!-- Signature pad -->
+  <div id="padSheet" class="sheet hidden">
+    <div>
+      <h2>Draw your signature</h2>
+      <p>Use your finger or a stylus.</p>
+      <div id="padWrap"><canvas id="pad"></canvas></div>
+      <div class="row">
+        <button class="secondary" id="padClear">Clear</button>
+        <button class="ghost" id="padCancel">Cancel</button>
+        <button id="padDone">Use signature</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text entry -->
+  <div id="textSheet" class="sheet hidden">
+    <div>
+      <h2 id="textTitle">Add text</h2>
+      <p>This will be placed where you tapped.</p>
+      <input id="textInput" type="text" maxlength="200" placeholder="Type here" />
+      <div class="row" style="margin-top:12px">
+        <button class="ghost" id="textCancel">Cancel</button>
+        <button id="textDone">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Finish / consent -->
+  <div id="finishSheet" class="sheet hidden">
+    <div>
+      <h2>Confirm and submit</h2>
+      <p>Review your name, then submit the signed document.</p>
+      <div id="finishMsg"></div>
+      <label for="fullName">Full legal name</label>
+      <input id="fullName" type="text" autocomplete="name" placeholder="Jane Doe" />
+      <label class="consent">
+        <input id="consent" type="checkbox" />
+        <span>I agree that my electronic signature is the legal equivalent of my
+          handwritten signature on this document.</span>
+      </label>
+      <div class="row">
+        <button class="ghost" id="finishCancel">Back</button>
+        <button id="finishGo">Sign &amp; submit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Done -->
+  <main id="done" class="wrap hidden">
+    <div class="card" style="text-align:center">
+      <div style="font-size:44px;line-height:1">✅</div>
+      <h2 style="margin:8px 0 4px;font-size:17px">Signed</h2>
+      <p style="font-size:14px;color:var(--muted)" id="doneSub"></p>
+      <button class="secondary block" id="downloadCopy" style="margin-top:12px">Download your copy</button>
+    </div>
+  </main>
+
+  <script src="/sign.js" type="module"></script>
+</body>
+</html>
