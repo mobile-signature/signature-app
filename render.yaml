@@ -30,8 +30,9 @@ services:
       - key: LINK_TTL_HOURS
         value: "168"
 
-      - key: DATA_DIR
-        value: /var/data
+      # No DATA_DIR on the free plan: it defaults to ./data inside the project,
+      # which is writable. Only point it at /var/data once you attach a real
+      # disk (see the note below) — otherwise the app cannot write at all.
 
 # ---------------------------------------------------------------------------
 # THE FREE PLAN HAS NO PERSISTENT DISK.
@@ -50,6 +51,11 @@ services:
 #      name: documents
 #      mountPath: /var/data
 #      sizeGB: 1
+#
+# ...and add the matching env var so the app writes to the disk:
+#
+#      - key: DATA_DIR
+#        value: /var/data
 #
 # Free instances also sleep after ~15 minutes idle; the first request afterwards
 # takes ~30 seconds to wake. A recipient opening your link may think it is

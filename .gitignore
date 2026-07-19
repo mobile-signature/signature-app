@@ -1,6 +1,7 @@
 node_modules/
 data/
 .env
+.claude/settings.local.json
 *.log
 .DS_Store
 mobile/.expo/
