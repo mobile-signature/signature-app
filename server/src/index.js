@@ -47,15 +47,17 @@ app.get('/s/:token', (req, res) => {
   // Title and company logo, no description line. `summary` keeps the logo as a
   // small square thumbnail beside the title rather than a large banner above
   // it, which is what a 200x200 mark is suited to.
-  const logo = `${PUBLIC_URL}/saka-logo.jpg`;
+  // The square version: chat apps crop a thumbnail to a square, which would
+  // slice the ends off the wide wordmark used in the header.
+  const logo = `${PUBLIC_URL}/saka-preview.png`;
   const meta = [
     `<meta property="og:title" content="${escapeAttr(title)}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
     `<meta property="og:site_name" content="${escapeAttr(title)}" />`,
     `<meta property="og:image" content="${escapeAttr(logo)}" />`,
-    `<meta property="og:image:width" content="200" />`,
-    `<meta property="og:image:height" content="200" />`,
+    `<meta property="og:image:width" content="400" />`,
+    `<meta property="og:image:height" content="400" />`,
     `<meta property="og:image:alt" content="SAKA" />`,
     `<meta name="twitter:card" content="summary" />`,
     `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
