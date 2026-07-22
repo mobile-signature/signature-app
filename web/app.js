@@ -81,9 +81,75 @@ async function activate() {
 $('unlock').addEventListener('click', activate);
 $('apiKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') activate(); });
 
+/* ------------------------------------------------------ staff password */
+
+// Licences and Deactivate sit behind a password. The password is checked by
+// the server — putting it in this file would let anyone read it from the page
+// source, and the server rejects the underlying requests without it anyway.
+let gateResolve = null;
+
+function askPassword({ title, why }) {
+  $('gateTitle').textContent = title;
+  $('gateWhy').textContent = why;
+  $('gateMsg').innerHTML = '';
+  $('gatePass').value = '';
+  show($('gateSheet'), true);
+  setTimeout(() => $('gatePass').focus(), 60);
+  return new Promise((resolve) => { gateResolve = resolve; });
+}
+
+function closePassword(result) {
+  show($('gateSheet'), false);
+  const resolve = gateResolve;
+  gateResolve = null;
+  if (resolve) resolve(result);
+}
+
+$('gateCancel').addEventListener('click', () => closePassword(false));
+
+$('gateGo').addEventListener('click', async () => {
+  const password = $('gatePass').value;
+  if (!password) return;
+  $('gateGo').disabled = true;
+  try {
+    await api('/api/gate', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    closePassword(true);
+  } catch (err) {
+    $('gateMsg').innerHTML = `<div class="msg err">${escapeHtml(err.message)}</div>`;
+    $('gatePass').value = '';
+    $('gatePass').focus();
+  } finally {
+    $('gateGo').disabled = false;
+  }
+});
+
+$('gatePass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('gateGo').click(); });
+
+$('adminLink').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const okToGo = await askPassword({
+    title: 'Licences',
+    why: 'Enter the staff password to manage licence keys.',
+  });
+  if (okToGo) window.location.href = '/admin';
+});
+
 $('signOut').addEventListener('click', async () => {
-  if (!confirm('Deactivate this device? You will need your licence key to use it again.')) return;
-  try { await api('/api/activation', { method: 'DELETE' }); } catch { /* already gone */ }
+  const okToGo = await askPassword({
+    title: 'Deactivate this device',
+    why: 'Enter the staff password. You will need a licence key to use this device again.',
+  });
+  if (!okToGo) return;
+
+  try {
+    await api('/api/activation', { method: 'DELETE' });
+  } catch (err) {
+    return flash(err.message);
+  }
   localStorage.removeItem('ms.apiKey'); // clear the pre-licensing leftover
   activated = false;
   isAdmin = false;
@@ -350,8 +416,6 @@ if (/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname)) {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
-
-$('serverSub').textContent = location.host;
 
 // Ask the server whether this device is already activated, so a returning user
 // goes straight to the app instead of the licence screen.

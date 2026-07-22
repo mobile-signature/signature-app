@@ -31,12 +31,44 @@ async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+// Two doors: the staff password, then the administrator key. The password stops
+// a borrowed device wandering in here; the key authorises the actual changes.
+let passedGate = false;
+
 function renderUnlocked(on) {
-  show($('gate'), !on);
-  show($('mainCard'), on);
-  show($('listCard'), on);
-  if (on) load();
+  show($('pwGate'), !passedGate);
+  show($('gate'), passedGate && !on);
+  show($('mainCard'), passedGate && on);
+  show($('listCard'), passedGate && on);
+  if (passedGate && on) load();
 }
+
+$('pwGo').addEventListener('click', async () => {
+  const password = $('pwPass').value;
+  if (!password) return;
+  $('pwGo').disabled = true;
+  try {
+    await api('/api/gate', { method: 'POST', body: { password } });
+    passedGate = true;
+    $('pwPass').value = '';
+    $('pwMsg').innerHTML = '';
+    // The gate may be all that was missing if this device is already admin.
+    try {
+      const state = await api('/api/activation');
+      return renderUnlocked(Boolean(state.activated && state.admin));
+    } catch {
+      return renderUnlocked(false);
+    }
+  } catch (err) {
+    $('pwMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+    $('pwPass').value = '';
+    $('pwPass').focus();
+  } finally {
+    $('pwGo').disabled = false;
+  }
+});
+
+$('pwPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pwGo').click(); });
 
 async function tryUnlock(key) {
   adminKey = key;
@@ -132,11 +164,13 @@ $('list').addEventListener('click', async (e) => {
   }
 });
 
-// An admin device that is already activated skips the key prompt.
+// Arriving with the gate cookie still valid (e.g. clicked through from the app)
+// skips straight past the password.
 (async () => {
   try {
-    const state = await api('/api/activation');
-    if (state.activated && state.admin) return renderUnlocked(true);
-  } catch { /* fall through to the prompt */ }
+    await api('/api/licenses');
+    passedGate = true;
+    return renderUnlocked(true);
+  } catch { /* needs the password, the key, or both */ }
   renderUnlocked(false);
 })();

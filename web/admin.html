@@ -33,6 +33,16 @@
   <main class="wrap">
     <div id="msg"></div>
 
+    <section id="pwGate" class="card hidden">
+      <h2 style="margin:0 0 4px;font-size:16px">Password required</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
+        Enter the staff password to manage licence keys.
+      </p>
+      <div id="pwMsg"></div>
+      <input id="pwPass" type="password" autocomplete="current-password" placeholder="Password" />
+      <button class="block" id="pwGo" style="margin-top:10px">Continue</button>
+    </section>
+
     <section id="gate" class="card hidden">
       <h2 style="margin:0 0 4px;font-size:16px">Administrator key required</h2>
       <p style="font-size:13px;color:var(--muted);margin:0 0 12px">

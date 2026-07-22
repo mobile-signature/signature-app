@@ -13,6 +13,7 @@ import { generateLicense, inspectLicense, envRevoked, normalize, SERIAL_LENGTH }
 import {
   COOKIE_NAME, readCookie, readToken, setActivationCookie, clearActivationCookie, describeDevice,
 } from '../activation.js';
+import { GATE_COOKIE, checkPassword, setGateCookie, verifyGateToken } from '../gate.js';
 import { issueTicket, redeemTicket, revokeTicketsFor } from '../tickets.js';
 
 export const router = express.Router();
@@ -130,9 +131,37 @@ router.post('/activation', (req, res) => {
   res.json({ ok: true, licence: inspected.serial });
 });
 
-// Deactivate this device.
-router.delete('/activation', (_req, res) => {
+// Deactivate this device. Behind the staff password so a borrowed device
+// cannot be signed out by whoever is holding it.
+router.delete('/activation', (req, res) => {
+  if (!verifyGateToken(readCookie(req, GATE_COOKIE) || '')) {
+    return res.status(403).json({ error: 'No permission.' });
+  }
   clearActivationCookie(res);
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------- staff password */
+
+const gateAttempts = new Map(); // ip -> { count, resetAt }
+
+router.post('/gate', (req, res) => {
+  const now = Date.now();
+  const rec = gateAttempts.get(req.ip);
+  if (rec && rec.resetAt > now && rec.count >= 8) {
+    return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+  }
+
+  if (!checkPassword(req.body?.password)) {
+    const next = rec && rec.resetAt > now
+      ? { count: rec.count + 1, resetAt: rec.resetAt }
+      : { count: 1, resetAt: now + 10 * 60 * 1000 };
+    gateAttempts.set(req.ip, next);
+    return res.status(403).json({ error: 'No permission.' });
+  }
+
+  gateAttempts.delete(req.ip);
+  setGateCookie(req, res);
   res.json({ ok: true });
 });
 
@@ -140,6 +169,10 @@ router.delete('/activation', (_req, res) => {
 
 // Only the admin key manages licences — an activated device cannot mint more.
 function requireAdmin(req, res, next) {
+  // The staff password gates the door; the admin key still authorises the work.
+  if (!verifyGateToken(readCookie(req, GATE_COOKIE) || '')) {
+    return res.status(403).json({ error: 'No permission.' });
+  }
   const token = readToken(readCookie(req, COOKIE_NAME) || '');
   if (token?.admin) return next();
   const provided = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');

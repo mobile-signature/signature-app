@@ -1,12 +1,22 @@
 // Caches only the sender app shell. Documents, signing pages and every /api
 // call go straight to the network — stale or cached PDFs would be a bug, and a
 // cached signing page would be a security problem.
+//
+// Strategy is NETWORK-FIRST for the shell, with the cache as an offline
+// fallback. Cache-first looks faster but means a deployed fix never reaches
+// anyone who already opened the app: they keep running the version they first
+// loaded, forever.
 
-const CACHE = 'mobile-signature-v1';
+const CACHE = 'mobile-signature-v4';
 const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(SHELL))
+      .catch(() => {}) // a failed pre-cache must not block activation
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -28,6 +38,19 @@ self.addEventListener('fetch', (event) => {
   if (bypass) return;
 
   event.respondWith(
-    caches.match(event.request).then((hit) => hit || fetch(event.request)),
+    fetch(event.request)
+      .then((res) => {
+        // Refresh the cached copy so the app still opens offline.
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(event.request).then((hit) => hit || Promise.reject(new Error('offline')))),
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
 });
