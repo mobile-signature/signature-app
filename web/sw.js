@@ -7,8 +7,11 @@
 // anyone who already opened the app: they keep running the version they first
 // loaded, forever.
 
-const CACHE = 'mobile-signature-v4';
-const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/icon.svg', '/manifest.webmanifest'];
+const CACHE = 'mobile-signature-v5';
+const SHELL = [
+  '/', '/index.html', '/app.js', '/styles.css',
+  '/icon.svg', '/saka-logo.jpg', '/manifest.webmanifest',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

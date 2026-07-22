@@ -44,17 +44,22 @@ app.get('/s/:token', (req, res) => {
   // confirm whether a token is real.
   const title = doc && doc.status !== 'revoked' ? doc.title : 'Sign document';
 
-  // Title only: no description line and no preview image, so the message shows
-  // the document name and nothing else. Chat apps fall back to their own
-  // defaults when og:description and og:image are absent, so both are omitted
-  // rather than set to an empty string.
+  // Title and company logo, no description line. `summary` keeps the logo as a
+  // small square thumbnail beside the title rather than a large banner above
+  // it, which is what a 200x200 mark is suited to.
+  const logo = `${PUBLIC_URL}/saka-logo.jpg`;
   const meta = [
     `<meta property="og:title" content="${escapeAttr(title)}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
     `<meta property="og:site_name" content="${escapeAttr(title)}" />`,
+    `<meta property="og:image" content="${escapeAttr(logo)}" />`,
+    `<meta property="og:image:width" content="200" />`,
+    `<meta property="og:image:height" content="200" />`,
+    `<meta property="og:image:alt" content="SAKA" />`,
     `<meta name="twitter:card" content="summary" />`,
     `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
+    `<meta name="twitter:image" content="${escapeAttr(logo)}" />`,
   ].join('\n  ');
 
   const html = SIGN_TEMPLATE
