@@ -1,0 +1,26 @@
+name: Keep the app awake
+
+# Render's free tier sleeps a service after ~15 minutes with no requests, and
+# the next visitor then waits ~50s for it to wake up. Worse, if a link preview
+# crawler (WhatsApp, etc.) hits it while asleep, the crawler gives up before
+# the app wakes, and caches a broken "no preview" result for that link
+# permanently. A ping under that 15-minute window keeps the app from ever
+# going to sleep in the first place.
+#
+# This runs on GitHub's own infrastructure — independent of any computer being
+# on — and only costs nothing because this repository is public (unlimited
+# free Actions minutes; a private repo would exceed the free minute budget at
+# this frequency within about two weeks).
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {} # lets it be triggered by hand from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the health check endpoint
+        run: |
+          curl -fsS --max-time 60 https://signature-app-n7vs.onrender.com/healthz
