@@ -43,21 +43,18 @@ app.get('/s/:token', (req, res) => {
   // An unknown or dead link gets the neutral wording: the preview should not
   // confirm whether a token is real.
   const title = doc && doc.status !== 'revoked' ? doc.title : 'Sign document';
-  const signer = doc?.signerName ? `for ${doc.signerName}` : '';
-  const description = doc
-    ? `Tap to review and sign ${signer}. Opens in your browser — nothing to install.`.replace(/\s+/g, ' ')
-    : 'Secure document signing.';
 
+  // Title only: no description line and no preview image, so the message shows
+  // the document name and nothing else. Chat apps fall back to their own
+  // defaults when og:description and og:image are absent, so both are omitted
+  // rather than set to an empty string.
   const meta = [
     `<meta property="og:title" content="${escapeAttr(title)}" />`,
-    `<meta property="og:description" content="${escapeAttr(description)}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
-    `<meta property="og:image" content="${escapeAttr(`${PUBLIC_URL}/icon-512.png`)}" />`,
     `<meta property="og:site_name" content="${escapeAttr(title)}" />`,
     `<meta name="twitter:card" content="summary" />`,
     `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
-    `<meta name="twitter:description" content="${escapeAttr(description)}" />`,
   ].join('\n  ');
 
   const html = SIGN_TEMPLATE
