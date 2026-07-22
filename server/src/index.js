@@ -37,32 +37,50 @@ function escapeAttr(text) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+// Status word for the link preview. Kept to one or two words: it sits on its
+// own line under the title, and a long phrase there would just move the
+// truncation problem down a line instead of solving anything.
+function statusLabel(doc) {
+  if (doc.status === 'signed') return 'Signed';
+  if (doc.expiresAt && new Date(doc.expiresAt).getTime() < Date.now()) return 'Expired';
+  return 'Pending signature';
+}
+
 app.get('/s/:token', (req, res) => {
   const doc = db.getDocumentByToken(req.params.token);
 
   // An unknown or dead link gets the neutral wording: the preview should not
   // confirm whether a token is real.
-  const title = doc && doc.status !== 'revoked' ? doc.title : 'Sign document';
+  const known = doc && doc.status !== 'revoked';
+  const title = known ? doc.title : 'Sign document';
+  const description = known ? statusLabel(doc) : undefined;
 
-  // Title and company logo, no description line. `summary` keeps the logo as a
-  // small square thumbnail beside the title rather than a large banner above
-  // it, which is what a 200x200 mark is suited to.
-  // The square version: chat apps crop a thumbnail to a square, which would
-  // slice the ends off the wide wordmark used in the header.
+  // Title, status and company logo. `summary` keeps the logo as a small square
+  // thumbnail beside the title rather than a large banner above it, which is
+  // what a 200x200 mark is suited to.
+  //
+  // WhatsApp (and every other chat app) truncates the title itself to
+  // whatever fits its own preview card — that width is fixed by their client,
+  // not by any tag here, so a long document title will still show "…"
+  // regardless of what this page sends. The status goes on the separate
+  // description line instead of into the title, so it stays short and
+  // legible even when the title above it gets cut.
   const logo = `${PUBLIC_URL}/saka-preview.png`;
   const meta = [
     `<meta property="og:title" content="${escapeAttr(title)}" />`,
+    description ? `<meta property="og:description" content="${escapeAttr(description)}" />` : '',
     `<meta property="og:type" content="website" />`,
     `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
-    `<meta property="og:site_name" content="${escapeAttr(title)}" />`,
+    `<meta property="og:site_name" content="SAKA" />`,
     `<meta property="og:image" content="${escapeAttr(logo)}" />`,
     `<meta property="og:image:width" content="400" />`,
     `<meta property="og:image:height" content="400" />`,
     `<meta property="og:image:alt" content="SAKA" />`,
     `<meta name="twitter:card" content="summary" />`,
     `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
+    description ? `<meta name="twitter:description" content="${escapeAttr(description)}" />` : '',
     `<meta name="twitter:image" content="${escapeAttr(logo)}" />`,
-  ].join('\n  ');
+  ].filter(Boolean).join('\n  ');
 
   const html = SIGN_TEMPLATE
     .replace('<title>Sign document</title>', `<title>${escapeAttr(title)}</title>\n  ${meta}`);
