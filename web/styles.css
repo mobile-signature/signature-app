@@ -44,7 +44,8 @@ header.bar {
   position: sticky;
   top: 0;
   z-index: 20;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr; /* equal sides keep the logo truly centred */
   align-items: center;
   gap: 10px;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
@@ -53,8 +54,32 @@ header.bar {
   border-bottom: 1px solid var(--line);
 }
 
-header.bar h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
-header.bar .sub { font-size: 12px; color: var(--muted); }
+.bar-side { min-width: 0; } /* lets long text ellipsis instead of stretching the cell */
+
+.bar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.bar-actions > * { flex: none; }
+
+header.bar h1 {
+  font-size: 17px;
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis; /* a long document title must not shove the logo aside */
+}
+header.bar .sub {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Height matches the two-line title block beside it; width follows the
    wordmark's own proportions rather than being forced into a square, which is

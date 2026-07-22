@@ -14,15 +14,23 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <!-- Three grid cells: text left, logo centred, actions right. The outer
+       cells are equal fractions, which is what keeps the logo on the true
+       centre line no matter how wide the title or the buttons become. -->
   <header class="bar">
-    <img src="/saka-logo.png" alt="SAKA" class="brand" />
-    <div style="flex:1;min-width:0">
+    <div class="bar-side">
       <h1>Mobile Signature</h1>
       <div class="sub" id="serverSub">SAKA Trading Co. SAL</div>
     </div>
-    <a href="/admin" id="adminLink" class="hidden"
-       style="flex:none;padding:8px 10px;font-size:13px;color:var(--muted);text-decoration:none">Licences</a>
-    <button class="ghost" id="signOut" style="flex:none;padding:8px 12px;font-size:13px">Deactivate</button>
+    <!-- width/height are set here as well as in CSS: if the stylesheet is ever
+         stale or slow, the image still lays out at the right size instead of
+         bursting out of the header at its natural 459x258. -->
+    <img src="/saka-logo.png" alt="SAKA" class="brand" width="74" height="42" />
+    <div class="bar-side bar-actions">
+      <a href="/admin" id="adminLink" class="hidden"
+         style="padding:8px 10px;font-size:13px;color:var(--muted);text-decoration:none">Licences</a>
+      <button class="ghost" id="signOut" style="padding:8px 12px;font-size:13px">Deactivate</button>
+    </div>
   </header>
 
   <main class="wrap">
