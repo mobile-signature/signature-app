@@ -1,9 +1,11 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import QRCode from 'qrcode';
 import { PORT, PUBLIC_URL, WEB_DIR, apiKey } from './config.js';
 import { router as api } from './routes/documents.js';
+import * as db from './db.js';
 
 const app = express();
 
@@ -20,9 +22,50 @@ app.use((_req, res, next) => {
 
 app.use('/api', api);
 
-// Recipient signing page. The token stays in the path so the page can read it.
-app.get('/s/:token', (_req, res) => {
-  res.sendFile(path.join(WEB_DIR, 'sign.html'));
+/**
+ * Recipient signing page. The token stays in the path so the page can read it.
+ *
+ * The Open Graph tags are filled in per document, so a link pasted into
+ * WhatsApp previews as "Rental agreement" rather than the page's generic title.
+ * Chat apps fetch this page anonymously to build that preview, so only the
+ * title is exposed here — never the document itself.
+ */
+const SIGN_TEMPLATE = fs.readFileSync(path.join(WEB_DIR, 'sign.html'), 'utf8');
+
+function escapeAttr(text) {
+  return String(text).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+app.get('/s/:token', (req, res) => {
+  const doc = db.getDocumentByToken(req.params.token);
+
+  // An unknown or dead link gets the neutral wording: the preview should not
+  // confirm whether a token is real.
+  const title = doc && doc.status !== 'revoked' ? doc.title : 'Sign document';
+  const signer = doc?.signerName ? `for ${doc.signerName}` : '';
+  const description = doc
+    ? `Tap to review and sign ${signer}. Opens in your browser — nothing to install.`.replace(/\s+/g, ' ')
+    : 'Secure document signing.';
+
+  const meta = [
+    `<meta property="og:title" content="${escapeAttr(title)}" />`,
+    `<meta property="og:description" content="${escapeAttr(description)}" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
+    `<meta property="og:image" content="${escapeAttr(`${PUBLIC_URL}/icon-512.png`)}" />`,
+    `<meta property="og:site_name" content="${escapeAttr(title)}" />`,
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
+    `<meta name="twitter:description" content="${escapeAttr(description)}" />`,
+  ].join('\n  ');
+
+  const html = SIGN_TEMPLATE
+    .replace('<title>Sign document</title>', `<title>${escapeAttr(title)}</title>\n  ${meta}`);
+
+  res.type('html');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(html);
 });
 
 // Licence management. The page itself is public; every action behind it

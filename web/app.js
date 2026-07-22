@@ -96,6 +96,7 @@ $('signOut').addEventListener('click', async () => {
 /* ------------------------------------------------ file / photo selection */
 
 let picked = null; // { blob, name, kind }
+let lastDocTitle = ''; // title of the most recently created link, for sharing
 
 const MAX_IMAGE_EDGE = 2400; // plenty for signing; keeps uploads small
 
@@ -197,6 +198,7 @@ $('send').addEventListener('click', async () => {
   try {
     const doc = await api('/api/documents', { method: 'POST', body: form });
     flash('');
+    lastDocTitle = doc.title || '';
     $('linkOut').value = doc.signUrl;
     show($('sendCard'), false);
     show($('resultCard'), true);
@@ -269,13 +271,19 @@ $('copyLink').addEventListener('click', async () => {
 
 $('shareLink').addEventListener('click', async () => {
   const url = $('linkOut').value;
+  // The document's own title, so the share sheet and the resulting message say
+  // what the document is rather than a generic phrase.
+  const title = lastDocTitle || 'Please sign this document';
+  const text = `Please sign: ${title}`;
+
   // Sharing is user-initiated here: the OS sheet lets them pick the recipient.
   if (navigator.share) {
     try {
-      await navigator.share({ title: 'Please sign this document', url });
+      await navigator.share({ title, text, url });
     } catch { /* user dismissed the sheet */ }
   } else {
-    window.location.href = `mailto:?subject=${encodeURIComponent('Please sign this document')}&body=${encodeURIComponent(url)}`;
+    window.location.href =
+      `mailto:?subject=${encodeURIComponent(text)}&body=${encodeURIComponent(url)}`;
   }
 });
 
