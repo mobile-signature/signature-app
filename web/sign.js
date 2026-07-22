@@ -476,15 +476,36 @@ $('finish').addEventListener('click', () => {
   if (!fields.length) return toast('Add at least your signature first.');
   if (!fields.some((f) => f.type === 'signature')) return toast('A signature is required.');
   $('finishMsg').innerHTML = '';
+  $('consentBox').classList.remove('needed');
   show($('finishSheet'), true);
 });
 
 $('finishCancel').addEventListener('click', () => show($('finishSheet'), false));
 
+// Clear the complaint the moment it stops being true, otherwise the signer sees
+// "Please tick the consent box" sitting above a box they have just ticked.
+$('consent').addEventListener('change', () => {
+  if ($('consent').checked) {
+    $('finishMsg').innerHTML = '';
+    $('consentBox').classList.remove('needed');
+  }
+});
+$('fullName').addEventListener('input', () => {
+  if ($('fullName').value.trim()) $('finishMsg').innerHTML = '';
+});
+
 $('finishGo').addEventListener('click', async () => {
   const signerName = $('fullName').value.trim();
-  if (!signerName) return err('Please type your full name.');
-  if (!$('consent').checked) return err('Please tick the consent box.');
+  if (!signerName) {
+    $('fullName').focus();
+    return err('Please type your full name.');
+  }
+  if (!$('consent').checked) {
+    // Point at the box itself, not just a message at the top of the sheet.
+    $('consentBox').classList.add('needed');
+    $('consentBox').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return err('Please tick the box below to confirm you agree.');
+  }
 
   $('finishGo').disabled = true;
   $('finishGo').textContent = 'Submitting…';

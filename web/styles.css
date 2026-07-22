@@ -255,8 +255,52 @@ button.block { width: 100%; }
 }
 #pad { display: block; width: 100%; height: 190px; touch-action: none; }
 
-.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--muted); margin: 12px 0; }
-.consent input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+/* The whole sentence is the tap target, not just the box — a 20px checkbox is
+   an easy thing to miss with a thumb, and missing it blocks the signature. */
+.consent {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  margin: 12px 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+.consent input {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.consent:has(input:checked) {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.consent:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Applied when someone submits without ticking, so the eye goes to the cause. */
+.consent.needed {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  animation: nudge 0.4s ease;
+}
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .consent.needed { animation: none; }
+}
 
 .center { text-align: center; padding: 48px 20px; color: var(--muted); }
 .spinner {
