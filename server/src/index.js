@@ -25,6 +25,12 @@ app.get('/s/:token', (_req, res) => {
   res.sendFile(path.join(WEB_DIR, 'sign.html'));
 });
 
+// Licence management. The page itself is public; every action behind it
+// requires the administrator key.
+app.get('/admin', (_req, res) => {
+  res.sendFile(path.join(WEB_DIR, 'admin.html'));
+});
+
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
 // Renders a link as a scannable QR so a phone can pick it up without typing.

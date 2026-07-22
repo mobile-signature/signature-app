@@ -1,7 +1,9 @@
 const $ = (id) => document.getElementById(id);
-const KEY_STORE = 'ms.apiKey';
 
-let apiKey = localStorage.getItem(KEY_STORE) || '';
+// The licence key is exchanged once for an httpOnly activation cookie and is
+// never kept in the browser. `activated` only mirrors what the server reports.
+let activated = false;
+let isAdmin = false;
 
 function show(el, on) {
   el.classList.toggle('hidden', !on);
@@ -18,45 +20,73 @@ function escapeHtml(s) {
 }
 
 async function api(path, { method = 'GET', body, headers = {} } = {}) {
-  const res = await fetch(path, {
-    method,
-    body,
-    headers: { Authorization: `Bearer ${apiKey}`, ...headers },
-  });
+  // same-origin credentials so the activation cookie travels automatically.
+  const res = await fetch(path, { method, body, headers, credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    // A revoked or expired activation drops straight back to the licence screen.
+    if (data.needsActivation) {
+      activated = false;
+      render();
+    }
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
   return data;
 }
 
 function render() {
-  const unlocked = Boolean(apiKey);
-  show($('authCard'), !unlocked);
-  show($('sendCard'), unlocked);
-  show($('listCard'), unlocked);
-  show($('signOut'), unlocked);
-  if (unlocked) refreshList();
+  show($('authCard'), !activated);
+  show($('sendCard'), activated);
+  show($('listCard'), activated);
+  show($('signOut'), activated);
+  show($('adminLink'), activated && isAdmin);
+  if (activated) refreshList();
 }
 
-/* --------------------------------------------------------------- unlock */
+/* ----------------------------------------------------------- activation */
 
-$('unlock').addEventListener('click', async () => {
+// Formats as the user types: MSIG-XXXXX-XXXXX-XXXXX-XXXXX
+$('apiKey').addEventListener('input', (e) => {
+  const raw = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (!raw.startsWith('MSIG') || raw.length > 24) return; // admin keys pass through untouched
+  const body = raw.slice(4);
+  const groups = body.match(/.{1,5}/g) || [];
+  e.target.value = groups.length ? `MSIG-${groups.join('-')}` : 'MSIG';
+});
+
+async function activate() {
   const key = $('apiKey').value.trim();
-  if (!key) return flash('Enter the API key first.');
-  apiKey = key;
+  if (!key) return flash('Enter your licence key.');
+  $('unlock').disabled = true;
+  $('unlock').textContent = 'Activating…';
   try {
-    await api('/api/documents');
-    localStorage.setItem(KEY_STORE, key);
+    const out = await api('/api/activation', {
+      method: 'POST',
+      body: JSON.stringify({ licenseKey: key }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    $('apiKey').value = ''; // never leave the key sitting in the field
+    activated = true;
+    isAdmin = Boolean(out.admin);
     flash('');
     render();
   } catch (err) {
-    apiKey = '';
     flash(err.message);
+  } finally {
+    $('unlock').disabled = false;
+    $('unlock').textContent = 'Activate';
   }
-});
+}
 
-$('signOut').addEventListener('click', () => {
-  localStorage.removeItem(KEY_STORE);
-  apiKey = '';
+$('unlock').addEventListener('click', activate);
+$('apiKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') activate(); });
+
+$('signOut').addEventListener('click', async () => {
+  if (!confirm('Deactivate this device? You will need your licence key to use it again.')) return;
+  try { await api('/api/activation', { method: 'DELETE' }); } catch { /* already gone */ }
+  localStorage.removeItem('ms.apiKey'); // clear the pre-licensing leftover
+  activated = false;
+  isAdmin = false;
   flash('');
   render();
 });
@@ -274,22 +304,15 @@ async function refreshList() {
         </div>`)
       .join('');
   } catch (err) {
-    if (/API key/i.test(err.message)) {
-      localStorage.removeItem(KEY_STORE);
-      apiKey = '';
-      render();
-    }
-    flash(err.message);
+    flash(err.message); // api() already drops to the licence screen if needed
   }
 }
 
 $('list').addEventListener('click', async (e) => {
   const id = e.target.dataset?.dl;
   if (!id) return;
-  // Fetch with the auth header, then hand the blob to the OS.
-  const res = await fetch(`/api/documents/${id}/download`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
+  // The activation cookie authenticates this; then hand the blob to the OS.
+  const res = await fetch(`/api/documents/${id}/download`, { credentials: 'same-origin' });
   if (!res.ok) return flash('Could not download that document.');
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
@@ -321,4 +344,37 @@ if ('serviceWorker' in navigator) {
 }
 
 $('serverSub').textContent = location.host;
-render();
+
+// Ask the server whether this device is already activated, so a returning user
+// goes straight to the app instead of the licence screen.
+(async () => {
+  try {
+    const state = await api('/api/activation');
+    activated = Boolean(state.activated);
+    isAdmin = Boolean(state.admin);
+    if (!activated && state.reason) flash(state.reason);
+  } catch {
+    activated = false;
+  }
+
+  // One-time migration for devices that unlocked before licensing existed:
+  // trade the stored key for an activation, then delete it.
+  if (!activated) {
+    const legacy = localStorage.getItem('ms.apiKey');
+    if (legacy) {
+      try {
+        const out = await api('/api/activation', {
+          method: 'POST',
+          body: JSON.stringify({ licenseKey: legacy }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        activated = true;
+        isAdmin = Boolean(out.admin);
+        flash('');
+      } catch { /* stale key — fall through to the licence screen */ }
+      localStorage.removeItem('ms.apiKey');
+    }
+  }
+
+  render();
+})();

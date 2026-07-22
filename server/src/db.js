@@ -8,12 +8,14 @@ import { DATA_DIR } from './config.js';
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 function emptyDb() {
-  return { documents: [], events: [] };
+  return { documents: [], events: [], licenses: [], revoked: [], activations: [] };
 }
 
 function load() {
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    // Merge over the empty shape so a file written by an older version still
+    // has every collection present.
+    return { ...emptyDb(), ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) };
   } catch {
     return emptyDb();
   }
@@ -68,4 +70,62 @@ export function logEvent(documentId, type, detail = {}) {
 
 export function eventsFor(documentId) {
   return db.events.filter((e) => e.documentId === documentId);
+}
+
+/* ------------------------------------------------------------- licensing */
+
+export function recordLicense(license) {
+  if (!db.licenses.some((l) => l.serial === license.serial)) {
+    db.licenses.push(license);
+    persist();
+  }
+  return license;
+}
+
+export function listLicenses() {
+  return [...db.licenses].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+export function revokeSerial(serial, note = '') {
+  if (!db.revoked.some((r) => r.serial === serial)) {
+    db.revoked.push({ serial, note, at: new Date().toISOString() });
+    persist();
+  }
+}
+
+export function unrevokeSerial(serial) {
+  const before = db.revoked.length;
+  db.revoked = db.revoked.filter((r) => r.serial !== serial);
+  if (db.revoked.length !== before) persist();
+}
+
+export function revokedSerials() {
+  return new Set(db.revoked.map((r) => r.serial));
+}
+
+/** One row per device that has activated, so licence use is visible. */
+export function recordActivation({ serial, device, ip }) {
+  const existing = db.activations.find((a) => a.serial === serial && a.device === device);
+  if (existing) {
+    existing.lastSeen = new Date().toISOString();
+    existing.count = (existing.count || 1) + 1;
+  } else {
+    db.activations.push({
+      serial,
+      device,
+      ip,
+      firstSeen: new Date().toISOString(),
+      lastSeen: new Date().toISOString(),
+      count: 1,
+    });
+  }
+  persist();
+}
+
+export function activationsFor(serial) {
+  return db.activations.filter((a) => a.serial === serial);
+}
+
+export function allActivations() {
+  return [...db.activations].sort((a, b) => String(b.lastSeen).localeCompare(String(a.lastSeen)));
 }

@@ -9,6 +9,10 @@ import { UPLOAD_DIR, MAX_UPLOAD_BYTES, PUBLIC_URL, LINK_TTL_HOURS, apiKey } from
 import * as db from '../db.js';
 import { stampPdf, pageCountOf } from '../pdf.js';
 import { imageToPdf, sniffImageType } from '../convert.js';
+import { generateLicense, inspectLicense, envRevoked, normalize, SERIAL_LENGTH } from '../license.js';
+import {
+  COOKIE_NAME, readCookie, readToken, setActivationCookie, clearActivationCookie, describeDevice,
+} from '../activation.js';
 import { issueTicket, redeemTicket, revokeTicketsFor } from '../tickets.js';
 
 export const router = express.Router();
@@ -37,13 +41,150 @@ function timingSafeEqual(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-function requireApiKey(req, res, next) {
-  const provided = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!provided || !timingSafeEqual(provided, apiKey())) {
-    return res.status(401).json({ error: 'Invalid or missing API key' });
+/**
+ * Is this licence still good? Checked on every request, not just at activation,
+ * so revoking a licence takes effect immediately on every device using it.
+ */
+function licenceStatus(serial) {
+  if (!serial) return { ok: false, reason: 'Activation is no longer valid.' };
+  if (envRevoked().has(serial) || db.revokedSerials().has(serial)) {
+    return { ok: false, reason: 'This licence has been revoked.' };
   }
-  next();
+  return { ok: true };
 }
+
+function requireActivation(req, res, next) {
+  const token = readToken(readCookie(req, COOKIE_NAME) || '');
+  if (token) {
+    if (token.admin) return next();
+    const status = licenceStatus(token.serial);
+    if (status.ok) return next();
+    clearActivationCookie(res);
+    return res.status(401).json({ error: status.reason, needsActivation: true });
+  }
+
+  // Scripts and integrations can still present the admin key directly.
+  const provided = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (provided && timingSafeEqual(provided, apiKey())) return next();
+
+  res.status(401).json({ error: 'This device is not activated.', needsActivation: true });
+}
+
+// Kept as an alias so existing route definitions read unchanged.
+const requireApiKey = requireActivation;
+
+/* ------------------------------------------------------------ activation */
+
+const activationAttempts = new Map(); // ip -> { count, resetAt }
+
+function tooManyActivationAttempts(ip) {
+  const now = Date.now();
+  const rec = activationAttempts.get(ip);
+  if (!rec || rec.resetAt < now) {
+    activationAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > 10;
+}
+
+// Has this device already activated?
+router.get('/activation', (req, res) => {
+  const token = readToken(readCookie(req, COOKIE_NAME) || '');
+  if (!token) return res.json({ activated: false });
+  if (token.admin) return res.json({ activated: true, admin: true });
+
+  const status = licenceStatus(token.serial);
+  if (!status.ok) {
+    clearActivationCookie(res);
+    return res.json({ activated: false, reason: status.reason });
+  }
+  res.json({ activated: true, admin: false, licence: token.serial });
+});
+
+// Activate this device with a licence key. Runs once per device.
+router.post('/activation', (req, res) => {
+  if (tooManyActivationAttempts(req.ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
+  }
+
+  const supplied = String(req.body?.licenseKey || '').trim();
+  if (!supplied) return res.status(400).json({ error: 'Enter your licence key.' });
+
+  // The admin key also activates, so the owner is never locked out.
+  if (timingSafeEqual(supplied, apiKey())) {
+    setActivationCookie(req, res, { serial: 'ADMIN', admin: true });
+    db.recordActivation({ serial: 'ADMIN', device: describeDevice(req), ip: req.ip });
+    return res.json({ ok: true, admin: true });
+  }
+
+  const inspected = inspectLicense(supplied);
+  if (!inspected.valid) return res.status(401).json({ error: inspected.reason });
+
+  const status = licenceStatus(inspected.serial);
+  if (!status.ok) return res.status(403).json({ error: status.reason });
+
+  setActivationCookie(req, res, { serial: inspected.serial, admin: false });
+  db.recordActivation({ serial: inspected.serial, device: describeDevice(req), ip: req.ip });
+  activationAttempts.delete(req.ip);
+  res.json({ ok: true, licence: inspected.serial });
+});
+
+// Deactivate this device.
+router.delete('/activation', (_req, res) => {
+  clearActivationCookie(res);
+  res.json({ ok: true });
+});
+
+/* ---------------------------------------------------------- admin: keys */
+
+// Only the admin key manages licences — an activated device cannot mint more.
+function requireAdmin(req, res, next) {
+  const token = readToken(readCookie(req, COOKIE_NAME) || '');
+  if (token?.admin) return next();
+  const provided = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (provided && timingSafeEqual(provided, apiKey())) return next();
+  res.status(403).json({ error: 'Administrator access required.' });
+}
+
+router.post('/licenses', requireAdmin, (req, res) => {
+  const { serial, key } = generateLicense();
+  const record = {
+    serial,
+    key,
+    label: String(req.body?.label || '').slice(0, 80),
+    createdAt: new Date().toISOString(),
+  };
+  db.recordLicense(record);
+  res.status(201).json(record);
+});
+
+router.get('/licenses', requireAdmin, (_req, res) => {
+  const revoked = new Set([...envRevoked(), ...db.revokedSerials()]);
+  res.json(
+    db.listLicenses().map((l) => ({
+      ...l,
+      revoked: revoked.has(l.serial),
+      devices: db.activationsFor(l.serial).length,
+    })),
+  );
+});
+
+router.post('/licenses/:serial/revoke', requireAdmin, (req, res) => {
+  const serial = normalize(req.params.serial).slice(0, SERIAL_LENGTH);
+  db.revokeSerial(serial, String(req.body?.note || '').slice(0, 200));
+  res.json({ ok: true, serial, revoked: true });
+});
+
+router.post('/licenses/:serial/restore', requireAdmin, (req, res) => {
+  const serial = normalize(req.params.serial).slice(0, SERIAL_LENGTH);
+  db.unrevokeSerial(serial);
+  res.json({ ok: true, serial, revoked: envRevoked().has(serial) });
+});
+
+router.get('/activations', requireAdmin, (_req, res) => {
+  res.json(db.allActivations());
+});
 
 function publicView(doc) {
   return {

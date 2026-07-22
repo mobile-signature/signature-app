@@ -19,24 +19,31 @@
       <h1>Mobile Signature</h1>
       <div class="sub" id="serverSub">Send a PDF for signature</div>
     </div>
-    <button class="ghost" id="signOut" style="flex:none;padding:8px 12px;font-size:13px">Sign out</button>
+    <a href="/admin" id="adminLink" class="hidden"
+       style="flex:none;padding:8px 10px;font-size:13px;color:var(--muted);text-decoration:none">Licences</a>
+    <button class="ghost" id="signOut" style="flex:none;padding:8px 12px;font-size:13px">Deactivate</button>
   </header>
 
   <main class="wrap">
     <div id="msg"></div>
 
-    <!-- Unlock -->
+    <!-- Activation -->
     <section id="authCard" class="card hidden">
-      <label for="apiKey">API key</label>
-      <input id="apiKey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
-             placeholder="Paste the key printed by the server" />
-      <p style="font-size:12px;color:var(--muted)">
-        Deployed on Render? Find it under your service &rarr; <b>Environment</b> &rarr;
-        <code>API_KEY</code>. Running locally? The server prints it on start-up and
-        saves it to <code>data/api-key.txt</code>. Either way it is stored only on
-        this device.
+      <h2 style="margin:0 0 4px;font-size:17px">Activate this device</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 14px">
+        Enter your licence key once. This device stays activated afterwards, so
+        you will not be asked again.
       </p>
-      <button class="block" id="unlock">Unlock</button>
+      <label for="apiKey">Licence key</label>
+      <input id="apiKey" type="text" autocomplete="off" autocapitalize="characters"
+             spellcheck="false" placeholder="MSIG-XXXXX-XXXXX-XXXXX-XXXXX"
+             style="font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:1px" />
+      <button class="block" id="unlock" style="margin-top:14px">Activate</button>
+      <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
+        The key is checked by the server and never stored in this browser.
+        You will need it again only on a different device, or if you clear
+        this browser's data.
+      </p>
     </section>
 
     <!-- Send -->

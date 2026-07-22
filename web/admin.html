@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Licences — Mobile Signature</title>
+  <meta name="theme-color" content="#3d7dfd" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .lic { padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .lic:last-child { border-bottom: 0; }
+    .lic code {
+      display: block; font-size: 15px; letter-spacing: 1px; margin-bottom: 6px;
+      font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all;
+    }
+    .lic.dead code { text-decoration: line-through; opacity: 0.5; }
+    .lic .row { display: flex; gap: 8px; align-items: center; }
+    .lic .row > .meta { flex: 1; font-size: 12px; color: var(--muted); }
+    .lic button { padding: 7px 12px; font-size: 12px; flex: none; }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div style="flex:1">
+      <h1>Licences</h1>
+      <div class="sub">Issue and revoke licence keys</div>
+    </div>
+    <a href="/" style="flex:none;font-size:13px;color:var(--accent);text-decoration:none">&larr; App</a>
+  </header>
+
+  <main class="wrap">
+    <div id="msg"></div>
+
+    <section id="gate" class="card hidden">
+      <h2 style="margin:0 0 4px;font-size:16px">Administrator key required</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
+        This is the <code>API_KEY</code> from your Render service &rarr; Environment.
+      </p>
+      <input id="adminKey" type="password" autocomplete="off" placeholder="Administrator key" />
+      <button class="block" id="adminGo" style="margin-top:10px">Continue</button>
+    </section>
+
+    <section id="mainCard" class="card hidden">
+      <h2 style="margin:0 0 4px;font-size:16px">Issue a new key</h2>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px">
+        Give each person their own key so you can revoke one without affecting
+        the others.
+      </p>
+      <label for="label">Who is it for?</label>
+      <input id="label" type="text" maxlength="80" placeholder="e.g. Ahmad — sales" />
+      <button class="block" id="create" style="margin-top:12px">Generate licence key</button>
+    </section>
+
+    <section id="listCard" class="card hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0;font-size:16px">Issued keys</h2>
+        <button class="ghost" id="refresh" style="padding:7px 12px;font-size:13px">Refresh</button>
+      </div>
+      <div id="list"></div>
+    </section>
+  </main>
+
+  <script src="/admin.js" type="module"></script>
+</body>
+</html>
