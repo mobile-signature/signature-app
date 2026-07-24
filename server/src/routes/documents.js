@@ -9,6 +9,7 @@ import { UPLOAD_DIR, MAX_UPLOAD_BYTES, PUBLIC_URL, LINK_TTL_HOURS, apiKey } from
 import * as db from '../db.js';
 import { stampPdf, pageCountOf } from '../pdf.js';
 import { imageToPdf, sniffImageType } from '../convert.js';
+import { renderFirstPageToPng } from '../thumbnail.js';
 import { generateLicense, inspectLicense, envRevoked, normalize, SERIAL_LENGTH } from '../license.js';
 import {
   COOKIE_NAME, readCookie, readToken, setActivationCookie, clearActivationCookie, describeDevice,
@@ -259,15 +260,40 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
     await fsp.unlink(req.file.path).catch(() => {});
 
     let sourceKind;
+    let previewExt = null;
+    let previewWidth = null;
+    let previewHeight = null;
     try {
       if (kind === 'application/pdf') {
         sourceKind = 'pdf';
         await fsp.writeFile(stored, raw);
+        // Best-effort thumbnail of page 1, for the link-preview image. Never
+        // lets a rendering problem fail the upload itself — worst case, the
+        // document just keeps the plain SAKA logo, exactly like before this
+        // existed.
+        try {
+          const rendered = await renderFirstPageToPng(raw);
+          previewExt = 'png';
+          previewWidth = rendered.width;
+          previewHeight = rendered.height;
+          await fsp.writeFile(path.join(UPLOAD_DIR, `${id}-preview.png`), rendered.bytes);
+        } catch (err) {
+          console.warn(`[preview] page-1 render skipped for ${id}: ${err.message}`);
+        }
       } else if (kind === 'image/jpeg' || kind === 'image/png') {
         // Photos and screenshots are wrapped into a one-page PDF so the rest of
         // the pipeline never has to care which one it started as.
         sourceKind = 'image';
-        await fsp.writeFile(stored, await imageToPdf(raw));
+        const converted = await imageToPdf(raw);
+        await fsp.writeFile(stored, converted.bytes);
+        // The page inside that PDF is these exact bytes at full size with no
+        // crop (imageToPdf sizes the page to the image's own aspect ratio), so
+        // they double as a real link-preview thumbnail at zero extra cost —
+        // no PDF rendering needed for this case.
+        previewExt = kind === 'image/jpeg' ? 'jpg' : 'png';
+        previewWidth = converted.width;
+        previewHeight = converted.height;
+        await fsp.writeFile(path.join(UPLOAD_DIR, `${id}-preview.${previewExt}`), raw);
       } else {
         return res.status(400).json({
           error: 'That file is not a PDF, JPEG or PNG. If it is a HEIC photo, ' +
@@ -298,6 +324,9 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
       status: 'sent',
       pageCount,
       sourceKind,
+      previewExt,
+      previewWidth,
+      previewHeight,
       sourcePath: stored,
       signedPath: null,
       createdAt: new Date().toISOString(),
@@ -401,6 +430,31 @@ router.get('/sign/:token/file', (req, res) => {
     headers: {
       'Content-Type': 'application/pdf',
       'Cache-Control': 'private, no-store',
+    },
+  });
+});
+
+/**
+ * The thumbnail shown in a chat app's link preview, for documents that
+ * started life as a photo or screenshot. Deliberately unauthenticated — chat
+ * apps fetch link previews with no ticket and no access code — but it still
+ * respects revocation, matching the title-hiding rule on the /s/:token page:
+ * a revoked or unknown link shows nothing about what it used to contain.
+ */
+router.get('/sign/:token/preview', (req, res) => {
+  const doc = db.getDocumentByToken(req.params.token);
+  if (!doc || doc.status === 'revoked' || !doc.previewExt) return res.sendStatus(404);
+
+  const file = path.join(UPLOAD_DIR, `${doc.id}-preview.${doc.previewExt}`);
+  if (!fs.existsSync(file)) return res.sendStatus(404);
+
+  res.sendFile(file, {
+    headers: {
+      'Content-Type': doc.previewExt === 'png' ? 'image/png' : 'image/jpeg',
+      // Long-lived: the thumbnail is fixed at upload time and never changes,
+      // so there is no correctness reason to refetch it, only a privacy one —
+      // and revocation is already checked above on every request.
+      'Cache-Control': 'public, max-age=86400',
     },
   });
 });

@@ -55,31 +55,36 @@ app.get('/s/:token', (req, res) => {
   const title = known ? doc.title : 'Sign document';
   const description = known ? statusLabel(doc) : undefined;
 
-  // Title, status and company logo. `summary` keeps the logo as a small square
-  // thumbnail beside the title rather than a large banner above it, which is
-  // what a 200x200 mark is suited to.
-  //
-  // WhatsApp (and every other chat app) truncates the title itself to
-  // whatever fits its own preview card — that width is fixed by their client,
-  // not by any tag here, so a long document title will still show "…"
-  // regardless of what this page sends. The status goes on the separate
-  // description line instead of into the title, so it stays short and
-  // legible even when the title above it gets cut.
-  const logo = `${PUBLIC_URL}/saka-preview.png`;
+  // For a photo/screenshot document, show the actual page 1 as the preview
+  // thumbnail — deliberately chosen despite the tradeoff: chat apps fetch this
+  // unauthenticated, so anyone with the link sees this image before entering
+  // any access code. Revocation is still checked (see /sign/:token/preview),
+  // and a genuine PDF upload keeps the plain SAKA logo — real rendering of an
+  // arbitrary PDF's first page is a separate, heavier piece of work.
+  const hasRealPreview = known && doc.previewExt && doc.previewWidth && doc.previewHeight;
+  const image = hasRealPreview
+    ? `${PUBLIC_URL}/api/sign/${req.params.token}/preview`
+    : `${PUBLIC_URL}/saka-preview.png`;
+  // Real content is worth showing at a readable size (a large banner); the
+  // brand-only fallback stays a small square next to the title, as designed.
+  const imageWidth = hasRealPreview ? doc.previewWidth : 400;
+  const imageHeight = hasRealPreview ? doc.previewHeight : 400;
+  const cardType = hasRealPreview ? 'summary_large_image' : 'summary';
+
   const meta = [
     `<meta property="og:title" content="${escapeAttr(title)}" />`,
     description ? `<meta property="og:description" content="${escapeAttr(description)}" />` : '',
     `<meta property="og:type" content="website" />`,
     `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
     `<meta property="og:site_name" content="SAKA" />`,
-    `<meta property="og:image" content="${escapeAttr(logo)}" />`,
-    `<meta property="og:image:width" content="400" />`,
-    `<meta property="og:image:height" content="400" />`,
+    `<meta property="og:image" content="${escapeAttr(image)}" />`,
+    `<meta property="og:image:width" content="${imageWidth}" />`,
+    `<meta property="og:image:height" content="${imageHeight}" />`,
     `<meta property="og:image:alt" content="SAKA" />`,
-    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="twitter:card" content="${cardType}" />`,
     `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
     description ? `<meta name="twitter:description" content="${escapeAttr(description)}" />` : '',
-    `<meta name="twitter:image" content="${escapeAttr(logo)}" />`,
+    `<meta name="twitter:image" content="${escapeAttr(image)}" />`,
   ].filter(Boolean).join('\n  ');
 
   const html = SIGN_TEMPLATE

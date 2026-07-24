@@ -57,5 +57,8 @@ export async function imageToPdf(buffer) {
   const page = pdf.addPage([pageW, pageH]);
   page.drawImage(image, { x: 0, y: 0, width: pageW, height: pageH });
 
-  return Buffer.from(await pdf.save());
+  // pxW/pxH (the ORIGINAL pixel dimensions, not the point-sized PDF page) are
+  // what a link-preview thumbnail needs: chat apps use the aspect ratio to lay
+  // out the card and will crop or letterbox it oddly if given the wrong one.
+  return { bytes: Buffer.from(await pdf.save()), width: pxW, height: pxH };
 }
