@@ -40,7 +40,12 @@ function render() {
   show($('listCard'), activated);
   show($('signOut'), activated);
   show($('adminLink'), activated && isAdmin);
-  if (activated) refreshList();
+  if (activated) {
+    refreshList();
+    startPolling();
+  } else {
+    stopPolling();
+  }
 }
 
 /* ----------------------------------------------------------- activation */
@@ -355,15 +360,37 @@ $('shareLink').addEventListener('click', async () => {
 
 /* ----------------------------------------------------------------- list */
 
-$('refresh').addEventListener('click', refreshList);
+$('refresh').addEventListener('click', () => refreshList({ userInitiated: true }));
 
-async function refreshList() {
+// Tracks each document's last-seen status, so a background refresh can tell
+// "just signed" (worth a banner) apart from "was already signed" (a no-op).
+let lastKnownStatus = new Map();
+let firstLoadDone = false;
+
+async function refreshList({ userInitiated = false } = {}) {
   try {
     const docs = await api('/api/documents');
     if (!docs.length) {
       $('list').innerHTML = '<p style="color:var(--muted);font-size:14px">Nothing sent yet.</p>';
+      lastKnownStatus = new Map();
+      firstLoadDone = true;
       return;
     }
+
+    // Only announce a transition INTO "signed" — never on the very first load
+    // of the page (that would announce every already-signed document at
+    // once) and never merely for re-fetching the same status again.
+    if (firstLoadDone) {
+      for (const d of docs) {
+        const was = lastKnownStatus.get(d.id);
+        if (was && was !== 'signed' && d.status === 'signed') {
+          announceSigned(d);
+        }
+      }
+    }
+    lastKnownStatus = new Map(docs.map((d) => [d.id, d.status]));
+    firstLoadDone = true;
+
     $('list').innerHTML = docs
       .map((d) => `
         <div class="doc">
@@ -378,9 +405,49 @@ async function refreshList() {
         </div>`)
       .join('');
   } catch (err) {
-    flash(err.message); // api() already drops to the licence screen if needed
+    // A silent background poll failing (network blip, cold start) should not
+    // interrupt whatever the person is doing — only surface the error for an
+    // explicit click of the Refresh button.
+    if (userInitiated) flash(err.message);
   }
 }
+
+function announceSigned(doc) {
+  const box = document.createElement('div');
+  box.className = 'signed-toast';
+  box.innerHTML =
+    `<b>✓ Signed</b><br />${escapeHtml(doc.title)}` +
+    (doc.signerName ? ` — ${escapeHtml(doc.signerName)}` : '');
+  document.body.appendChild(box);
+  // Let the user dismiss it early, otherwise it clears itself.
+  box.addEventListener('click', () => box.remove());
+  setTimeout(() => box.remove(), 8000);
+}
+
+// Polls in the background so a signed document appears without pressing
+// Refresh. Paused while the tab is hidden — a phone in a pocket has no
+// reason to keep waking the radio to ask "is it signed yet?" — and it
+// refreshes once immediately whenever the tab becomes visible again, so
+// switching back always shows the current state right away.
+let pollTimer = null;
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => refreshList(), 20_000);
+}
+function stopPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (!activated) return;
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    refreshList();
+    startPolling();
+  }
+});
 
 $('list').addEventListener('click', async (e) => {
   const id = e.target.dataset?.dl;
