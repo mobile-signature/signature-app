@@ -466,7 +466,7 @@ async function refreshList({ userInitiated = false } = {}) {
           </div>
           <span class="pill ${d.status}">${d.status}</span>
           <button class="ghost" style="flex:none;padding:8px 10px;font-size:12px"
-                  data-dl="${d.id}">Get</button>
+                  data-dl="${d.id}" data-title="${escapeHtml(d.title)}">Get</button>
         </div>`)
       .join('');
   } catch (err) {
@@ -524,7 +524,13 @@ $('list').addEventListener('click', async (e) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${id}.pdf`;
+  // Fetching the blob ourselves (rather than a plain link to the download
+  // route) means the browser never sees the server's Content-Disposition
+  // filename — a.download is the only thing that decides the saved name, so
+  // it has to be built from the title here, same sanitisation the server
+  // already applies for consistency.
+  const title = (e.target.dataset.title || '').trim().replace(/[^\w.\- ]+/g, '_');
+  a.download = `${title || id}.pdf`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 });
