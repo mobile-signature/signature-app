@@ -192,7 +192,11 @@ button.block { width: 100%; }
   touch-action: pan-y;
 }
 .page canvas { display: block; width: 100%; height: auto; }
-.page .overlay { position: absolute; inset: 0; }
+/* pointer-events: none so an empty overlay never blocks pointer input meant
+   for the pen canvas underneath it (a sibling, sitting lower in DOM order).
+   Individual .field elements restore their own pointer-events below, so
+   existing drag/resize/delete on placed fields is unaffected. */
+.page .overlay { position: absolute; inset: 0; pointer-events: none; }
 
 /* Freehand pen markup, layered above the page render and below placed
    fields. touch-action: none stops a drawing finger from also scrolling the
@@ -220,6 +224,7 @@ button.block { width: 100%; }
   white-space: nowrap;
   overflow: hidden;
   touch-action: none;
+  pointer-events: auto; /* restore interactivity — its parent .overlay opts out by default */
 }
 .field img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .field .del {
