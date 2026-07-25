@@ -17,8 +17,11 @@ const DEFAULT_SIZE = {
   signature: { w: 0.34, h: 0.075 },
   text: { w: 0.3, h: 0.035 },
   date: { w: 0.22, h: 0.035 },
-  check: { w: 0.05, h: 0.028 },
+  // No entry for 'pen' — it is drawn freehand directly on the page rather
+  // than tapped-and-placed at a fixed size, so it never uses this table.
 };
+
+const penSurfaces = []; // one per page: { canvas, ctx, hasInk, drawing, lastPt, lastMid }
 
 function show(el, on) { el.classList.toggle('hidden', !on); }
 function esc(s) {
@@ -162,6 +165,16 @@ async function renderPdf() {
     canvas.height = viewport.height;
     wrap.appendChild(canvas);
 
+    // Freehand pen markup for this page. Sits above the rendered PDF but
+    // below the field overlay, sized in device pixels exactly like the page
+    // canvas above so a stroke lands at full sharpness, not stretched.
+    const penCanvas = document.createElement('canvas');
+    penCanvas.className = 'pen-canvas';
+    penCanvas.width = viewport.width;
+    penCanvas.height = viewport.height;
+    wrap.appendChild(penCanvas);
+    penSurfaces[i - 1] = makePenSurface(penCanvas, dpr);
+
     const overlay = document.createElement('div');
     overlay.className = 'overlay';
     wrap.appendChild(overlay);
@@ -187,12 +200,23 @@ for (const btn of document.querySelectorAll('.tool')) {
     const turningOff = activeTool === tool;
     activeTool = turningOff ? null : tool;
     document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b === btn && !turningOff));
-    if (activeTool) toast(`Tap the page to place your ${activeTool}.`);
+    // The pen canvases only accept pointer input while Pen is the active
+    // tool — otherwise they would sit on top of every page and swallow taps
+    // meant for placing a signature/text/date field or dragging one already
+    // placed.
+    for (const surface of penSurfaces) {
+      if (surface) surface.canvas.style.pointerEvents = activeTool === 'pen' ? 'auto' : 'none';
+    }
+    if (activeTool === 'pen') toast('Draw on the page to mark it up.');
+    else if (activeTool) toast(`Tap the page to place your ${activeTool}.`);
   });
 }
 
 $('pages').addEventListener('click', (e) => {
-  if (!activeTool) return;
+  // Pen has no tap-to-place step of its own — it draws directly via the
+  // pointer handlers wired up in makePenSurface(), so there is nothing for a
+  // plain click to do here.
+  if (!activeTool || activeTool === 'pen') return;
   const pageEl = e.target.closest('.page');
   if (!pageEl || e.target.closest('.field')) return;
 
@@ -211,8 +235,6 @@ $('pages').addEventListener('click', (e) => {
     lastSignature ? placeField('signature', lastSignature) : openPad();
   } else if (activeTool === 'date') {
     placeField('date', new Date().toLocaleDateString());
-  } else if (activeTool === 'check') {
-    placeField('check', '✓');
   } else {
     $('textInput').value = '';
     show($('textSheet'), true);
@@ -221,6 +243,79 @@ $('pages').addEventListener('click', (e) => {
 });
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+/* ------------------------------------------------------------- pen markup */
+
+// One independent drawing surface per page, each with its own last-point
+// state so strokes on different pages never interfere. Uses the same
+// quadratic-smoothing approach as the signature pad below for matching line
+// quality, kept as a separate implementation since that pad is a single
+// fixed-size modal canvas while this is N page-sized canvases created and
+// torn down with the document.
+function makePenSurface(canvas, dpr) {
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 4 * dpr;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Semi-transparent red reads as both a pen mark and a highlighter, and is
+  // clearly distinct from the signature's solid dark ink.
+  ctx.strokeStyle = 'rgba(224, 48, 48, 0.6)';
+
+  const surface = { canvas, ctx, hasInk: false, drawing: false, lastPt: null, lastMid: null };
+
+  const point = (e) => {
+    const r = canvas.getBoundingClientRect();
+    // CSS pixels -> the canvas's own device-pixel backing store.
+    return {
+      x: (e.clientX - r.left) * (canvas.width / r.width),
+      y: (e.clientY - r.top) * (canvas.height / r.height),
+    };
+  };
+
+  const drawTo = (p) => {
+    const mid = { x: (surface.lastPt.x + p.x) / 2, y: (surface.lastPt.y + p.y) / 2 };
+    ctx.beginPath();
+    ctx.moveTo(surface.lastMid.x, surface.lastMid.y);
+    ctx.quadraticCurveTo(surface.lastPt.x, surface.lastPt.y, mid.x, mid.y);
+    ctx.stroke();
+    surface.lastMid = mid;
+    surface.lastPt = p;
+    surface.hasInk = true;
+  };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    surface.drawing = true;
+    surface.lastPt = point(e);
+    surface.lastMid = surface.lastPt;
+    // A dot, so a simple tap still leaves a mark.
+    ctx.beginPath();
+    ctx.arc(surface.lastPt.x, surface.lastPt.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
+    surface.hasInk = true;
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!surface.drawing) return;
+    e.preventDefault();
+    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of events.length ? events : [e]) drawTo(point(ev));
+  });
+
+  const endStroke = () => {
+    if (!surface.drawing) return;
+    ctx.beginPath();
+    ctx.moveTo(surface.lastMid.x, surface.lastMid.y);
+    ctx.lineTo(surface.lastPt.x, surface.lastPt.y);
+    ctx.stroke();
+    surface.drawing = false;
+  };
+  canvas.addEventListener('pointerup', endStroke);
+  canvas.addEventListener('pointercancel', endStroke);
+
+  return surface;
+}
 
 function placeField(type, value) {
   const spot = pendingSpot;
@@ -510,6 +605,17 @@ $('finishGo').addEventListener('click', async () => {
   $('finishGo').disabled = true;
   $('finishGo').textContent = 'Submitting…';
   try {
+    // Pen marks live on their own page-sized canvases, not in the `fields`
+    // array used for tap-placed, draggable stamps — only pages that were
+    // actually drawn on get sent, each as one full-page image.
+    const penFields = penSurfaces
+      .map((surface, page) => (surface?.hasInk ? { surface, page } : null))
+      .filter(Boolean)
+      .map(({ surface, page }) => ({
+        type: 'pen', page, x: 0, y: 0, w: 1, h: 1,
+        value: surface.canvas.toDataURL('image/png'),
+      }));
+
     const res = await fetch(`/api/sign/${encodeURIComponent(token)}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -517,7 +623,10 @@ $('finishGo').addEventListener('click', async () => {
         ticket,
         signerName,
         consent: true,
-        fields: fields.map(({ type, page, x, y, w, h, value }) => ({ type, page, x, y, w, h, value })),
+        fields: [
+          ...fields.map(({ type, page, x, y, w, h, value }) => ({ type, page, x, y, w, h, value })),
+          ...penFields,
+        ],
       }),
     });
     const data = await res.json().catch(() => ({}));

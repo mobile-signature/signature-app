@@ -7,11 +7,17 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
  * bottom-left, so every field gets flipped here — one conversion, one place.
  *
  * field = {
- *   type: 'signature' | 'text' | 'date' | 'check',
+ *   type: 'signature' | 'pen' | 'text' | 'date',
  *   page: 0-based index,
  *   x, y, w, h: 0..1 relative to the page box,
- *   value: data URL (signature) or string (text/date),
+ *   value: data URL (signature/pen) or string (text/date),
  * }
+ *
+ * 'pen' is freehand markup drawn directly on the page (highlighting a line,
+ * circling a problem) rather than a signature — validated and stamped
+ * identically to 'signature' (both are just a transparent PNG placed in a
+ * box), but kept as a distinct type so the audit trail and the "a signature
+ * is required" check never confuse markup with an actual signature.
  */
 
 const MAX_FIELDS = 200;
@@ -47,7 +53,7 @@ export function validateFields(fields, pageCount) {
   return fields.map((f, i) => {
     const where = `field ${i + 1}`;
     const type = String(f.type || '');
-    if (!['signature', 'text', 'date', 'check'].includes(type)) {
+    if (!['signature', 'pen', 'text', 'date'].includes(type)) {
       throw new Error(`${where}: unknown type "${type}"`);
     }
     const page = Number(f.page);
@@ -69,13 +75,11 @@ export function validateFields(fields, pageCount) {
       w: num(f.w, 'w'),
       h: num(f.h, 'h'),
     };
-    if (type === 'signature') {
+    if (type === 'signature' || type === 'pen') {
       if (typeof f.value !== 'string' || !f.value.startsWith('data:image/png;base64,')) {
-        throw new Error(`${where}: signature must be a PNG data URL`);
+        throw new Error(`${where}: ${type} must be a PNG data URL`);
       }
       out.value = f.value;
-    } else if (type === 'check') {
-      out.value = null; // drawn as vector strokes, not text
     } else {
       const v = String(f.value ?? '').slice(0, 500);
       if (!v.trim()) throw new Error(`${where}: text is empty`);
@@ -110,9 +114,12 @@ export async function stampPdf({ sourcePath, outputPath, fields, audit }) {
     // Flip the top-left origin to pdf-lib's bottom-left origin.
     const y = height - field.y * height - h;
 
-    if (field.type === 'signature') {
+    if (field.type === 'signature' || field.type === 'pen') {
+      // Pen markup is a full-page-sized box (x=0,y=0,w=1,h=1), so this scale
+      // is always ~1 for it — the transparent PNG lands pixel-for-pixel where
+      // it was drawn. A tap-placed signature uses a small box instead, so the
+      // same scale-to-fit math is what centres it there.
       const png = await pdf.embedPng(Buffer.from(field.value.split(',')[1], 'base64'));
-      // Preserve the drawn aspect ratio inside the placed box.
       const scale = Math.min(w / png.width, h / png.height);
       const drawW = png.width * scale;
       const drawH = png.height * scale;
@@ -121,22 +128,6 @@ export async function stampPdf({ sourcePath, outputPath, fields, audit }) {
         y: y + (h - drawH) / 2,
         width: drawW,
         height: drawH,
-      });
-    } else if (field.type === 'check') {
-      // Two strokes rather than a "✓" glyph — the standard fonts cannot encode it.
-      const ink = rgb(0.05, 0.05, 0.2);
-      const thickness = Math.max(1.2, Math.min(w, h) * 0.16);
-      page.drawLine({
-        start: { x: x + w * 0.12, y: y + h * 0.5 },
-        end: { x: x + w * 0.4, y: y + h * 0.18 },
-        thickness,
-        color: ink,
-      });
-      page.drawLine({
-        start: { x: x + w * 0.4, y: y + h * 0.18 },
-        end: { x: x + w * 0.9, y: y + h * 0.85 },
-        thickness,
-        color: ink,
       });
     } else {
       const size = Math.max(6, Math.min(h * 0.8, 36));

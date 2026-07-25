@@ -194,6 +194,19 @@ button.block { width: 100%; }
 .page canvas { display: block; width: 100%; height: auto; }
 .page .overlay { position: absolute; inset: 0; }
 
+/* Freehand pen markup, layered above the page render and below placed
+   fields. touch-action: none stops a drawing finger from also scrolling the
+   page; pointer-events starts at none so it never blocks taps meant for
+   other tools, and is switched on only while Pen is the active tool. */
+.pen-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  pointer-events: none;
+}
+
 .field {
   position: absolute;
   border: 1.5px dashed var(--accent);
