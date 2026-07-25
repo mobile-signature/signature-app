@@ -251,8 +251,73 @@ function fmtSize(bytes) {
 $('file').addEventListener('change', (e) => choose(e.target.files[0]));
 $('cameraInput').addEventListener('change', (e) => choose(e.target.files[0]));
 
+// Phones have a real camera app the OS already knows how to open — the
+// `capture` attribute on cameraInput does that directly, and it is a better
+// experience than reimplementing a camera UI in the page (flash, zoom, native
+// controls all come for free). Laptops have no such app to hand off to, so
+// that is the one case this needs to actually build a capture flow for.
+const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+let webcamStream = null;
+
+function stopWebcam() {
+  webcamStream?.getTracks().forEach((t) => t.stop());
+  webcamStream = null;
+  $('webcamVideo').srcObject = null;
+}
+
+async function openWebcam() {
+  $('webcamMsg').innerHTML = '';
+  show($('webcamSheet'), true);
+  try {
+    webcamStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }, // ignored on desktop, harmless
+      audio: false,
+    });
+    $('webcamVideo').srcObject = webcamStream;
+  } catch (err) {
+    // No camera, permission denied, or already in use elsewhere — fall back
+    // to the plain file picker exactly as before this feature existed.
+    show($('webcamSheet'), false);
+    flash('Could not open the webcam (' + (err.message || err.name) + '). Choose a file instead.');
+    $('file').click();
+  }
+}
+
+$('webcamCapture').addEventListener('click', () => {
+  const video = $('webcamVideo');
+  if (!video.videoWidth) return; // stream not ready yet; ignore a stray early tap
+  const canvas = $('webcamCanvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    stopWebcam();
+    show($('webcamSheet'), false);
+    if (!blob) return flash('Could not capture that photo. Try again.');
+    // Same object shape a real <input type=file> change event delivers, so
+    // choose() needs no changes at all to handle it.
+    choose(new File([blob], 'webcam-photo.jpg', { type: 'image/jpeg' }));
+  }, 'image/jpeg', 0.92);
+});
+
+$('webcamCancel').addEventListener('click', () => {
+  stopWebcam();
+  show($('webcamSheet'), false);
+});
+
 // The camera is only requested when the user asks for it — no upfront prompt.
-$('cameraBtn').addEventListener('click', () => $('cameraInput').click());
+$('cameraBtn').addEventListener('click', () => {
+  if (isMobileDevice) {
+    $('cameraInput').click();
+  } else if (navigator.mediaDevices?.getUserMedia) {
+    openWebcam();
+  } else {
+    // Older/unsupported browser: same graceful fallback as a denied prompt.
+    flash('This browser cannot open a camera here. Choose a file instead.');
+    $('file').click();
+  }
+});
 
 $('send').addEventListener('click', async () => {
   if (!picked) return flash('Choose a PDF, photo or screenshot to send.');

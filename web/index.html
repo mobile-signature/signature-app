@@ -66,6 +66,24 @@
       <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden />
       <div id="filePreview" class="hidden" style="margin-top:10px"></div>
 
+      <!-- Laptop/desktop webcam capture. Mobile never opens this — it uses
+           cameraInput above, which triggers the OS's own camera app directly. -->
+      <div id="webcamSheet" class="sheet hidden">
+        <div>
+          <h2>Take a photo</h2>
+          <p>Point your webcam at the document, then capture.</p>
+          <div id="webcamMsg"></div>
+          <div style="background:#000;border-radius:10px;overflow:hidden">
+            <video id="webcamVideo" autoplay playsinline muted style="width:100%;display:block;max-height:60vh"></video>
+          </div>
+          <canvas id="webcamCanvas" hidden></canvas>
+          <div class="row" style="margin-top:12px">
+            <button class="ghost" id="webcamCancel">Cancel</button>
+            <button id="webcamCapture">Capture</button>
+          </div>
+        </div>
+      </div>
+
       <label for="title">Title</label>
       <input id="title" type="text" placeholder="Rental agreement" />
 
