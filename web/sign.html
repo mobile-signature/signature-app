@@ -52,6 +52,11 @@
   <div id="viewer" class="hidden">
     <div id="pages"></div>
     <div id="hint" class="hint hidden"></div>
+    <!-- Only shown while Pen is the active tool. -->
+    <div id="penControls" class="pen-controls hidden">
+      <button class="ghost" id="penUndo">↶ Undo</button>
+      <button class="ghost" id="penClear">Clear page</button>
+    </div>
     <div class="toolbar">
       <button class="tool" data-tool="signature">✍️ Sign</button>
       <button class="tool" data-tool="text">🔤 Text</button>

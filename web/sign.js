@@ -21,7 +21,8 @@ const DEFAULT_SIZE = {
   // than tapped-and-placed at a fixed size, so it never uses this table.
 };
 
-const penSurfaces = []; // one per page: { canvas, ctx, hasInk, drawing, lastPt, lastMid }
+const penSurfaces = []; // one per page: { canvas, ctx, hasInk, drawing, lastPt, lastMid, history }
+let mostRecentPenSurface = null; // whichever page Undo/Clear act on
 
 function show(el, on) { el.classList.toggle('hidden', !on); }
 function esc(s) {
@@ -207,8 +208,13 @@ for (const btn of document.querySelectorAll('.tool')) {
     for (const surface of penSurfaces) {
       if (surface) surface.canvas.style.pointerEvents = activeTool === 'pen' ? 'auto' : 'none';
     }
-    if (activeTool === 'pen') toast('Draw on the page to mark it up.');
-    else if (activeTool) toast(`Tap the page to place your ${activeTool}.`);
+    show($('penControls'), activeTool === 'pen');
+    if (activeTool === 'pen') {
+      updatePenControls();
+      toast('Draw on the page to mark it up.');
+    } else if (activeTool) {
+      toast(`Tap the page to place your ${activeTool}.`);
+    }
   });
 }
 
@@ -252,6 +258,19 @@ const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 // quality, kept as a separate implementation since that pad is a single
 // fixed-size modal canvas while this is N page-sized canvases created and
 // torn down with the document.
+// Bounds memory: a page canvas can be a few thousand pixels per side, so
+// storing raw pixel snapshots for undo could reach hundreds of MB across a
+// multi-page document. PNG-encoded snapshots instead — cheap here because an
+// annotation layer is mostly transparent, which PNG compresses very well —
+// and capping the depth keeps even a long markup session bounded.
+const PEN_UNDO_DEPTH = 8;
+
+function hasVisibleInk(canvas) {
+  const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] > 8) return true;
+  return false;
+}
+
 function makePenSurface(canvas, dpr) {
   const ctx = canvas.getContext('2d');
   ctx.lineWidth = 4 * dpr;
@@ -261,7 +280,10 @@ function makePenSurface(canvas, dpr) {
   // clearly distinct from the signature's solid dark ink.
   ctx.strokeStyle = 'rgba(224, 48, 48, 0.6)';
 
-  const surface = { canvas, ctx, hasInk: false, drawing: false, lastPt: null, lastMid: null };
+  const surface = {
+    canvas, ctx, hasInk: false, drawing: false, lastPt: null, lastMid: null,
+    history: [], // PNG data URLs, one per stroke, oldest first
+  };
 
   const point = (e) => {
     const r = canvas.getBoundingClientRect();
@@ -285,6 +307,12 @@ function makePenSurface(canvas, dpr) {
 
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
+    mostRecentPenSurface = surface;
+    // Snapshot the state THIS stroke is about to change, so Undo can restore
+    // exactly it — captured before any pixel of the new stroke is drawn.
+    surface.history.push(canvas.toDataURL('image/png'));
+    if (surface.history.length > PEN_UNDO_DEPTH) surface.history.shift();
+
     surface.drawing = true;
     surface.lastPt = point(e);
     surface.lastMid = surface.lastPt;
@@ -294,6 +322,7 @@ function makePenSurface(canvas, dpr) {
     ctx.fillStyle = ctx.strokeStyle;
     ctx.fill();
     surface.hasInk = true;
+    updatePenControls();
   });
 
   canvas.addEventListener('pointermove', (e) => {
@@ -314,8 +343,37 @@ function makePenSurface(canvas, dpr) {
   canvas.addEventListener('pointerup', endStroke);
   canvas.addEventListener('pointercancel', endStroke);
 
+  surface.undo = () => {
+    const prev = surface.history.pop();
+    if (prev === undefined) return;
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      surface.hasInk = hasVisibleInk(canvas);
+      updatePenControls();
+    };
+    img.src = prev;
+  };
+
+  surface.clear = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    surface.hasInk = false;
+    surface.history = [];
+    updatePenControls();
+  };
+
   return surface;
 }
+
+function updatePenControls() {
+  const s = mostRecentPenSurface;
+  $('penUndo').disabled = !s || s.history.length === 0;
+  $('penClear').disabled = !s || !s.hasInk;
+}
+
+$('penUndo').addEventListener('click', () => mostRecentPenSurface?.undo());
+$('penClear').addEventListener('click', () => mostRecentPenSurface?.clear());
 
 function placeField(type, value) {
   const spot = pendingSpot;
