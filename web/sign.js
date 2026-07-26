@@ -190,6 +190,7 @@ async function renderPdf() {
 
   show($('loading'), false);
   show($('viewer'), true);
+  pinToVisibleArea();
   toast('Pick a tool below, then tap where it goes.', 3400);
 }
 
@@ -718,5 +719,37 @@ $('downloadCopy').addEventListener('click', async () => {
   window.location.href =
     `/api/sign/${encodeURIComponent(token)}/file?ticket=${encodeURIComponent(data.ticket)}`;
 });
+
+/* -------------------------------------------------------- pinch-zoom fix */
+
+// position: fixed pins an element to the LAYOUT viewport, but pinch-zoom (on
+// mobile, iOS in particular — it deliberately ignores maximum-scale=1 for
+// accessibility, so it can't just be disabled) changes the VISUAL viewport
+// instead. Zoom or pan far enough and a bottom-pinned toolbar ends up
+// positioned outside what the browser chrome is actually showing on screen
+// — not broken, just no longer reachable. visualViewport is the API built
+// specifically to answer "where is the user actually looking right now",
+// so the fix is to keep re-pinning the toolbar there rather than trusting
+// the layout viewport's fixed positioning alone.
+function pinToVisibleArea() {
+  const vv = window.visualViewport;
+  if (!vv) return; // no API: falls back to plain (imperfect) position:fixed
+  // How far the bottom of what is actually visible differs from the bottom
+  // of the layout viewport — zero at rest, non-zero once zoomed and/or
+  // panned. offsetTop/height are already expressed in layout-viewport CSS
+  // pixels, so no extra scale math is needed here.
+  const shift = window.innerHeight - (vv.offsetTop + vv.height);
+  const bar = document.querySelector('.toolbar');
+  if (bar) bar.style.transform = `translateY(${-shift}px)`;
+  const pen = $('penControls');
+  if (pen) pen.style.transform = `translate(-50%, ${-shift}px)`;
+  const hint = $('hint');
+  if (hint) hint.style.transform = `translate(-50%, ${-shift}px)`;
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', pinToVisibleArea);
+  window.visualViewport.addEventListener('scroll', pinToVisibleArea);
+}
 
 open();
