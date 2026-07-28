@@ -60,6 +60,22 @@
       </p>
       <label for="label">Who is it for?</label>
       <input id="label" type="text" maxlength="80" placeholder="e.g. Ahmad — sales" />
+
+      <label for="ttl">Valid for</label>
+      <div class="row" style="align-items:center">
+        <input id="ttl" type="number" min="1" step="1" placeholder="Leave blank = never expires" />
+        <select id="ttlUnit" style="flex:0 0 auto;padding:13px 14px;font-size:16px;
+                color:var(--text);background:var(--surface-2);border:1px solid var(--line);
+                border-radius:10px">
+          <option value="days">days</option>
+          <option value="hours">hours</option>
+        </select>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
+        When this runs out the key stops working and its unsigned drafts are
+        deleted. Documents already <b>signed</b> are kept.
+      </p>
+
       <button class="block" id="create" style="margin-top:12px">Generate licence key</button>
     </section>
 

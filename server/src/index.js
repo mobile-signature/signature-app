@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { PORT, PUBLIC_URL, WEB_DIR, apiKey } from './config.js';
 import { router as api } from './routes/documents.js';
 import * as db from './db.js';
+import { startRetentionEngine } from './retention.js';
 
 const app = express();
 
@@ -155,6 +156,13 @@ app.use((err, _req, res, _next) => {
   const status = err.status || (err.code === 'LIMIT_FILE_SIZE' ? 413 : 500);
   if (status >= 500) console.error(err);
   res.status(status).json({ error: err.message || 'Server error' });
+});
+
+// Purges unsigned documents belonging to workspaces whose time is up. Signed
+// documents are deliberately retained — see retention.js.
+startRetentionEngine((workspace) => {
+  const expiresAt = db.workspaceExpiresAt(workspace);
+  return Boolean(expiresAt && new Date(expiresAt).getTime() <= Date.now());
 });
 
 app.listen(PORT, () => {

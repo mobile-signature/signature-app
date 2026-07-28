@@ -35,20 +35,49 @@ export function createDocument(doc) {
   return doc;
 }
 
-export function getDocumentById(id) {
-  return db.documents.find((d) => d.id === id) || null;
+/**
+ * Every document belongs to exactly one workspace (a licence serial).
+ * Documents created before workspaces existed have no field, and are treated
+ * as the administrator's own — they were all created with the admin key.
+ */
+export const ADMIN_WORKSPACE = 'ADMIN';
+export const workspaceOf = (doc) => doc.workspace || ADMIN_WORKSPACE;
+
+/**
+ * Isolation is enforced HERE rather than in each route. A route that forgets
+ * to filter is the single most likely way to leak one tenant's documents to
+ * another, so the scope is a required argument of the lookup itself: pass no
+ * workspace and you get nothing back, rather than everything.
+ */
+export function getDocumentById(id, workspace) {
+  const doc = db.documents.find((d) => d.id === id) || null;
+  if (!doc) return null;
+  if (!workspace) return null;
+  return workspaceOf(doc) === workspace ? doc : null;
 }
 
+// Recipient path: the unguessable link token IS the capability, and a
+// recipient has no workspace identity at all, so this is deliberately
+// unscoped. Expiry/revocation are still checked by the caller.
 export function getDocumentByToken(token) {
   return db.documents.find((d) => d.token === token) || null;
 }
 
-export function listDocuments() {
-  return [...db.documents].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export function listDocuments(workspace) {
+  if (!workspace) return [];
+  return db.documents
+    .filter((d) => workspaceOf(d) === workspace)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+// Unscoped, for internal use only (signing by token, retention sweeps) —
+// never wired to a route that a workspace user can reach.
+export function getDocumentByIdUnscoped(id) {
+  return db.documents.find((d) => d.id === id) || null;
 }
 
 export function updateDocument(id, patch) {
-  const doc = getDocumentById(id);
+  const doc = getDocumentByIdUnscoped(id);
   if (!doc) return null;
   Object.assign(doc, patch);
   persist();
@@ -84,6 +113,17 @@ export function recordLicense(license) {
 
 export function listLicenses() {
   return [...db.licenses].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+/**
+ * Expiry of a workspace, for the retention sweep only. Returns null when
+ * unknown — an unknown workspace is deliberately treated as "not expired" so
+ * a lost database can never trigger deletion of documents it knows nothing
+ * about. Access control does not use this; it reads the signed key.
+ */
+export function workspaceExpiresAt(serial) {
+  const lic = db.licenses.find((l) => l.serial === serial);
+  return lic?.expiresAt || null;
 }
 
 export function revokeSerial(serial, note = '') {
@@ -128,4 +168,25 @@ export function activationsFor(serial) {
 
 export function allActivations() {
   return [...db.activations].sort((a, b) => String(b.lastSeen).localeCompare(String(a.lastSeen)));
+}
+
+/* -------------------------------------------------------------- retention */
+
+/** Unscoped snapshot, for retention sweeps only. */
+export function allDocuments() {
+  return [...db.documents];
+}
+
+/** Drops document records by id and returns how many were removed. */
+export function deleteDocuments(ids) {
+  const doomed = new Set(ids);
+  if (doomed.size === 0) return 0;
+  const before = db.documents.length;
+  db.documents = db.documents.filter((d) => !doomed.has(d.id));
+  // Their audit events go too — keeping an audit trail for a document that no
+  // longer exists is just orphaned personal data.
+  db.events = db.events.filter((e) => !doomed.has(e.documentId));
+  const removed = before - db.documents.length;
+  if (removed) persist();
+  return removed;
 }

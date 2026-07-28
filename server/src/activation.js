@@ -26,9 +26,14 @@ function sign(payload) {
   return crypto.createHmac('sha256', secret()).update(payload).digest('base64url');
 }
 
-export function issueToken({ serial, admin = false }) {
-  const exp = Date.now() + MAX_AGE_DAYS * 24 * 3600 * 1000;
-  const payload = Buffer.from(JSON.stringify({ serial, admin, exp })).toString('base64url');
+export function issueToken({ serial, admin = false, wsExp = null }) {
+  // The device session never outlives its workspace: if the licence expires
+  // in 6 hours, so does this cookie. wsExp is kept alongside it so an expired
+  // workspace can be reported as such, rather than as a generic "not
+  // activated" that would send the user hunting for a key that still works.
+  let exp = Date.now() + MAX_AGE_DAYS * 24 * 3600 * 1000;
+  if (wsExp) exp = Math.min(exp, new Date(wsExp).getTime());
+  const payload = Buffer.from(JSON.stringify({ serial, admin, exp, wsExp })).toString('base64url');
   return `${payload}.${sign(payload)}`;
 }
 
@@ -43,7 +48,11 @@ export function readToken(token) {
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
     if (typeof data.exp !== 'number' || data.exp <= Date.now()) return null;
-    return { serial: String(data.serial || ''), admin: Boolean(data.admin) };
+    return {
+      serial: String(data.serial || ''),
+      admin: Boolean(data.admin),
+      wsExp: data.wsExp || null,
+    };
   } catch {
     return null;
   }
@@ -62,12 +71,17 @@ export function readCookie(req, name) {
 
 export function setActivationCookie(req, res, payload) {
   const secure = req.secure || req.get('x-forwarded-proto') === 'https';
+  let maxAge = MAX_AGE_DAYS * 24 * 3600;
+  if (payload.wsExp) {
+    const remaining = Math.floor((new Date(payload.wsExp).getTime() - Date.now()) / 1000);
+    maxAge = Math.max(0, Math.min(maxAge, remaining));
+  }
   const bits = [
     `${COOKIE_NAME}=${issueToken(payload)}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
-    `Max-Age=${MAX_AGE_DAYS * 24 * 3600}`,
+    `Max-Age=${maxAge}`,
   ];
   if (secure) bits.push('Secure');
   res.setHeader('Set-Cookie', bits.join('; '));

@@ -15,6 +15,7 @@ import {
   COOKIE_NAME, readCookie, readToken, setActivationCookie, clearActivationCookie, describeDevice,
 } from '../activation.js';
 import { GATE_COOKIE, checkPassword, setGateCookie, verifyGateToken } from '../gate.js';
+import { EXPIRED_MESSAGE, sweep } from '../retention.js';
 import { issueTicket, redeemTicket, revokeTicketsFor } from '../tickets.js';
 
 export const router = express.Router();
@@ -47,27 +48,73 @@ function timingSafeEqual(a, b) {
  * Is this licence still good? Checked on every request, not just at activation,
  * so revoking a licence takes effect immediately on every device using it.
  */
-function licenceStatus(serial) {
+/**
+ * A free-tier instance sleeps, and a sleeping process runs no timers — so the
+ * hourly sweep alone would silently stop happening. Noticing an expired
+ * workspace during a request is itself a reliable trigger, throttled so a
+ * burst of requests cannot turn into a burst of full sweeps.
+ */
+const SWEEP_THROTTLE_MS = 5 * 60 * 1000;
+let lastOpportunisticSweep = 0;
+
+function sweepOpportunistically() {
+  if (Date.now() - lastOpportunisticSweep < SWEEP_THROTTLE_MS) return;
+  lastOpportunisticSweep = Date.now();
+  try {
+    sweep((ws) => {
+      const exp = db.workspaceExpiresAt(ws);
+      return Boolean(exp && new Date(exp).getTime() <= Date.now());
+    });
+  } catch (err) {
+    console.error('[retention] opportunistic sweep failed:', err.message);
+  }
+}
+
+function licenceStatus(serial, wsExp = null) {
   if (!serial) return { ok: false, reason: 'Activation is no longer valid.' };
   if (envRevoked().has(serial) || db.revokedSerials().has(serial)) {
     return { ok: false, reason: 'This licence has been revoked.' };
   }
+  if (wsExp && new Date(wsExp).getTime() <= Date.now()) {
+    sweepOpportunistically();
+    return { ok: false, reason: EXPIRED_MESSAGE, expired: true };
+  }
   return { ok: true };
 }
 
+/**
+ * Establishes req.workspace — the tenant boundary every document route below
+ * is scoped to. Nothing downstream may read a document without it.
+ */
 function requireActivation(req, res, next) {
   const token = readToken(readCookie(req, COOKIE_NAME) || '');
   if (token) {
-    if (token.admin) return next();
-    const status = licenceStatus(token.serial);
-    if (status.ok) return next();
+    if (token.admin) {
+      req.workspace = db.ADMIN_WORKSPACE;
+      req.isAdmin = true;
+      return next();
+    }
+    const status = licenceStatus(token.serial, token.wsExp);
+    if (status.ok) {
+      req.workspace = token.serial;
+      req.isAdmin = false;
+      return next();
+    }
     clearActivationCookie(res);
-    return res.status(401).json({ error: status.reason, needsActivation: true });
+    return res.status(401).json({
+      error: status.reason,
+      needsActivation: true,
+      expired: Boolean(status.expired),
+    });
   }
 
   // Scripts and integrations can still present the admin key directly.
   const provided = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  if (provided && timingSafeEqual(provided, apiKey())) return next();
+  if (provided && timingSafeEqual(provided, apiKey())) {
+    req.workspace = db.ADMIN_WORKSPACE;
+    req.isAdmin = true;
+    return next();
+  }
 
   res.status(401).json({ error: 'This device is not activated.', needsActivation: true });
 }
@@ -96,12 +143,17 @@ router.get('/activation', (req, res) => {
   if (!token) return res.json({ activated: false });
   if (token.admin) return res.json({ activated: true, admin: true });
 
-  const status = licenceStatus(token.serial);
+  const status = licenceStatus(token.serial, token.wsExp);
   if (!status.ok) {
     clearActivationCookie(res);
-    return res.json({ activated: false, reason: status.reason });
+    return res.json({ activated: false, reason: status.reason, expired: Boolean(status.expired) });
   }
-  res.json({ activated: true, admin: false, licence: token.serial });
+  res.json({
+    activated: true,
+    admin: false,
+    licence: token.serial,
+    workspaceExpiresAt: token.wsExp || null,
+  });
 });
 
 // Activate this device with a licence key. Runs once per device.
@@ -123,13 +175,21 @@ router.post('/activation', (req, res) => {
   const inspected = inspectLicense(supplied);
   if (!inspected.valid) return res.status(401).json({ error: inspected.reason });
 
-  const status = licenceStatus(inspected.serial);
-  if (!status.ok) return res.status(403).json({ error: status.reason });
+  // The expiry is carried inside the key itself, so a workspace whose time is
+  // up cannot be re-activated even on a device that has never seen it before.
+  const status = licenceStatus(inspected.serial, inspected.expiresAt);
+  if (!status.ok) {
+    return res.status(403).json({ error: status.reason, expired: Boolean(status.expired) });
+  }
 
-  setActivationCookie(req, res, { serial: inspected.serial, admin: false });
+  setActivationCookie(req, res, {
+    serial: inspected.serial,
+    admin: false,
+    wsExp: inspected.expiresAt,
+  });
   db.recordActivation({ serial: inspected.serial, device: describeDevice(req), ip: req.ip });
   activationAttempts.delete(req.ip);
-  res.json({ ok: true, licence: inspected.serial });
+  res.json({ ok: true, licence: inspected.serial, workspaceExpiresAt: inspected.expiresAt });
 });
 
 // Deactivate this device. Behind the staff password so a borrowed device
@@ -181,13 +241,31 @@ function requireAdmin(req, res, next) {
   res.status(403).json({ error: 'Administrator access required.' });
 }
 
+const MAX_TTL_HOURS = 24 * 3650; // ten years; anything longer is "never"
+
 router.post('/licenses', requireAdmin, (req, res) => {
-  const { serial, key } = generateLicense();
+  // TTL arrives as a number plus a unit, so "3 days" and "72 hours" are both
+  // expressible without the caller doing arithmetic.
+  const unit = req.body?.ttlUnit === 'days' ? 'days' : 'hours';
+  const rawTtl = Number(req.body?.ttl);
+  let ttlHours = null;
+  if (Number.isFinite(rawTtl) && rawTtl > 0) {
+    ttlHours = Math.min(unit === 'days' ? rawTtl * 24 : rawTtl, MAX_TTL_HOURS);
+  }
+
+  const { serial, key, expiresAt } = generateLicense(ttlHours);
   const record = {
     serial,
     key,
     label: String(req.body?.label || '').slice(0, 80),
     createdAt: new Date().toISOString(),
+    // Mirrored into the database purely so the retention sweep knows which
+    // workspaces are past their time. Access control never reads this — it
+    // reads the tamper-proof expiry inside the key — so if this record is
+    // lost to a disk wipe the effect is that purging pauses, never that an
+    // expired workspace silently regains access or that data is destroyed
+    // early. The safe failure direction for each concern, separately.
+    expiresAt: expiresAt || null,
   };
   db.recordLicense(record);
   res.status(201).json(record);
@@ -195,11 +273,14 @@ router.post('/licenses', requireAdmin, (req, res) => {
 
 router.get('/licenses', requireAdmin, (_req, res) => {
   const revoked = new Set([...envRevoked(), ...db.revokedSerials()]);
+  const now = Date.now();
   res.json(
     db.listLicenses().map((l) => ({
       ...l,
       revoked: revoked.has(l.serial),
+      expired: Boolean(l.expiresAt && new Date(l.expiresAt).getTime() <= now),
       devices: db.activationsFor(l.serial).length,
+      documents: db.listDocuments(l.serial).length,
     })),
   );
 });
@@ -316,6 +397,10 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
     const accessCode = String(req.body.accessCode || '').trim();
     const doc = db.createDocument({
       id,
+      // Tenant stamp, taken from the activation cookie rather than anything
+      // client-supplied — a caller cannot place a document into someone
+      // else's workspace by editing a request.
+      workspace: req.workspace,
       token: nanoid(32),
       title: String(req.body.title || req.file.originalname).slice(0, 200),
       signerName: String(req.body.signerName || '').slice(0, 120),
@@ -341,30 +426,36 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
   }
 });
 
-router.get('/documents', requireApiKey, (_req, res) => {
-  res.json(db.listDocuments().map(publicView));
+// Every read below is scoped to req.workspace. A document belonging to another
+// workspace is reported as 404, not 403: "you may not see this" would still
+// confirm that the id exists, which is itself a cross-tenant leak.
+router.get('/documents', requireApiKey, (req, res) => {
+  res.json(db.listDocuments(req.workspace).map(publicView));
 });
 
 router.get('/documents/:id', requireApiKey, (req, res) => {
-  const doc = db.getDocumentById(req.params.id);
+  const doc = db.getDocumentById(req.params.id, req.workspace);
   if (!doc) return res.status(404).json({ error: 'Not found' });
   res.json({ ...publicView(doc), events: db.eventsFor(doc.id) });
 });
 
 router.get('/documents/:id/download', requireApiKey, (req, res) => {
-  const doc = db.getDocumentById(req.params.id);
+  const doc = db.getDocumentById(req.params.id, req.workspace);
   if (!doc) return res.status(404).json({ error: 'Not found' });
   const file = doc.signedPath && fs.existsSync(doc.signedPath) ? doc.signedPath : doc.sourcePath;
+  if (!fs.existsSync(file)) {
+    return res.status(410).json({ error: 'That document is no longer stored on the server.' });
+  }
   res.download(file, `${doc.title.replace(/[^\w.\- ]+/g, '_')}.pdf`);
 });
 
 router.post('/documents/:id/revoke', requireApiKey, (req, res) => {
-  const doc = db.getDocumentById(req.params.id);
+  const doc = db.getDocumentById(req.params.id, req.workspace);
   if (!doc) return res.status(404).json({ error: 'Not found' });
   db.updateDocument(doc.id, { status: 'revoked', expiresAt: new Date().toISOString() });
   revokeTicketsFor(doc.id);
   db.logEvent(doc.id, 'revoked');
-  res.json(publicView(db.getDocumentById(doc.id)));
+  res.json(publicView(db.getDocumentById(doc.id, req.workspace)));
 });
 
 /* --------------------------------------------------------------- recipient */
@@ -382,11 +473,24 @@ function tooManyAttempts(token) {
   return rec.count > 8;
 }
 
+/**
+ * A document is unreachable once EITHER its own link TTL has run out or the
+ * workspace that issued it has expired. Both cases give the signer the same
+ * standardised message naming who to contact, rather than a dead end.
+ */
+function accessBlockReason(doc) {
+  if (doc.status === 'revoked') return 'This link has been revoked.';
+  if (isExpired(doc)) return EXPIRED_MESSAGE;
+  const wsExp = db.workspaceExpiresAt(db.workspaceOf(doc));
+  if (wsExp && new Date(wsExp).getTime() <= Date.now()) return EXPIRED_MESSAGE;
+  return null;
+}
+
 router.post('/sign/:token/open', (req, res) => {
   const doc = db.getDocumentByToken(req.params.token);
   if (!doc) return res.status(404).json({ error: 'This link is not valid.' });
-  if (doc.status === 'revoked') return res.status(410).json({ error: 'This link has been revoked.' });
-  if (isExpired(doc)) return res.status(410).json({ error: 'This link has expired.' });
+  const blocked = accessBlockReason(doc);
+  if (blocked) return res.status(410).json({ error: blocked });
 
   if (doc.accessCodeHash) {
     if (tooManyAttempts(req.params.token)) {
@@ -411,7 +515,9 @@ router.post('/sign/:token/open', (req, res) => {
     title: doc.title,
     signerName: doc.signerName,
     pageCount: doc.pageCount,
-    status: db.getDocumentById(doc.id).status,
+    // Unscoped by design: a recipient holds a link token, not a workspace
+    // identity, so there is no tenant to scope this lookup to.
+    status: db.getDocumentByIdUnscoped(doc.id).status,
     alreadySigned: Boolean(doc.signedAt),
   });
 });
@@ -463,9 +569,8 @@ router.post('/sign/:token/complete', async (req, res, next) => {
   try {
     const doc = db.getDocumentByToken(req.params.token);
     if (!doc) return res.status(404).json({ error: 'This link is not valid.' });
-    if (doc.status === 'revoked' || isExpired(doc)) {
-      return res.status(410).json({ error: 'This link is no longer active.' });
-    }
+    const blocked = accessBlockReason(doc);
+    if (blocked) return res.status(410).json({ error: blocked });
     if (doc.signedAt) return res.status(409).json({ error: 'This document was already signed.' });
     if (!redeemTicket(String(req.body?.ticket || ''), doc.id)) {
       return res.status(401).json({ error: 'Session expired. Reopen the link.' });

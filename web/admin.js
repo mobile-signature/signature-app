@@ -99,9 +99,20 @@ $('adminKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('adm
 $('create').addEventListener('click', async () => {
   $('create').disabled = true;
   try {
-    const lic = await api('/api/licenses', { method: 'POST', body: { label: $('label').value.trim() } });
+    const lic = await api('/api/licenses', {
+      method: 'POST',
+      body: {
+        label: $('label').value.trim(),
+        ttl: $('ttl').value.trim(),        // blank => never expires
+        ttlUnit: $('ttlUnit').value,
+      },
+    });
     $('label').value = '';
-    flash(`New key: ${lic.key}`, 'ok');
+    $('ttl').value = '';
+    const until = lic.expiresAt
+      ? ` (valid until ${new Date(lic.expiresAt).toLocaleString()})`
+      : ' (never expires)';
+    flash(`New key: ${lic.key}${until}`, 'ok');
     load();
   } catch (err) {
     flash(err.message);
@@ -120,12 +131,17 @@ async function load() {
       return;
     }
     $('list').innerHTML = licences.map((l) => `
-      <div class="lic ${l.revoked ? 'dead' : ''}">
+      <div class="lic ${l.revoked || l.expired ? 'dead' : ''}">
         <code>${esc(l.key)}</code>
         <div class="row">
           <span class="meta">${esc(l.label || 'No label')} ·
             ${l.devices} device${l.devices === 1 ? '' : 's'} ·
-            ${new Date(l.createdAt).toLocaleDateString()}</span>
+            ${l.documents} doc${l.documents === 1 ? '' : 's'} ·
+            ${l.expired
+              ? '<b style="color:var(--danger)">expired</b>'
+              : l.expiresAt
+                ? `expires ${new Date(l.expiresAt).toLocaleString()}`
+                : 'never expires'}</span>
           <button class="secondary" data-copy="${esc(l.key)}">Copy</button>
           ${l.revoked
             ? `<button class="secondary" data-restore="${esc(l.serial)}">Restore</button>`
