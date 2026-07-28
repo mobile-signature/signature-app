@@ -84,8 +84,9 @@
         </div>
       </div>
 
-      <label for="title">Title</label>
-      <input id="title" type="text" placeholder="Rental agreement" />
+      <label for="title">Title <span style="color:var(--danger)">*</span></label>
+      <input id="title" type="text" placeholder="Rental agreement" required
+             aria-required="true" maxlength="200" />
 
       <label for="signerName">Recipient name</label>
       <input id="signerName" type="text" placeholder="Jane Doe" autocomplete="name" />

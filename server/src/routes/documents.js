@@ -332,6 +332,15 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
   try {
     if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' });
 
+    // Checked here too, not only in the browser: a rule enforced only by the
+    // page it ships with is advisory. Bail before any conversion work, and
+    // clean up the upload multer already wrote to disk.
+    const title = String(req.body.title || '').trim().slice(0, 200);
+    if (!title) {
+      await fsp.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: 'A title is required.' });
+    }
+
     const id = nanoid(12);
     const stored = path.join(UPLOAD_DIR, `${id}.pdf`);
 
@@ -402,7 +411,7 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
       // else's workspace by editing a request.
       workspace: req.workspace,
       token: nanoid(32),
-      title: String(req.body.title || req.file.originalname).slice(0, 200),
+      title,
       signerName: String(req.body.signerName || '').slice(0, 120),
       signerEmail: String(req.body.signerEmail || '').slice(0, 200),
       accessCodeHash: accessCode ? hashCode(accessCode) : null,

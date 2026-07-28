@@ -225,7 +225,10 @@ async function choose(file) {
       picked = { blob, name: `${baseName}.jpg`, kind: 'image' };
       preview(`🖼️ ${baseName}.jpg · ${fmtSize(blob.size)} — will be signed as a one-page document`);
     }
-    if (!$('title').value) $('title').value = baseName;
+    // Deliberately NOT auto-filled from the filename: the title is what the
+    // recipient sees in the chat preview before they open anything, so it
+    // should be something chosen for them to read, not "scan_0043".
+    // A title already typed is left alone rather than wiped.
   } catch {
     picked = null;
     preview('');
@@ -247,6 +250,11 @@ function fmtSize(bytes) {
     ? `${Math.round(bytes / 1024)} KB`
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+// Clear the "enter a title" complaint as soon as it stops being true.
+$('title').addEventListener('input', () => {
+  if ($('title').value.trim()) flash('');
+});
 
 $('file').addEventListener('change', (e) => choose(e.target.files[0]));
 $('cameraInput').addEventListener('change', (e) => choose(e.target.files[0]));
@@ -322,9 +330,16 @@ $('cameraBtn').addEventListener('click', () => {
 $('send').addEventListener('click', async () => {
   if (!picked) return flash('Choose a PDF, photo or screenshot to send.');
 
+  const title = $('title').value.trim();
+  if (!title) {
+    $('title').focus();
+    $('title').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return flash('Enter a title for this document.');
+  }
+
   const form = new FormData();
   form.append('file', picked.blob, picked.name);
-  form.append('title', $('title').value.trim() || picked.name);
+  form.append('title', title);
   form.append('signerName', $('signerName').value.trim());
   form.append('signerEmail', $('signerEmail').value.trim());
   form.append('accessCode', $('accessCode').value.trim());
