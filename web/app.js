@@ -209,6 +209,20 @@ async function normalizeImage(file) {
   return blob;
 }
 
+// Focus + briefly highlight the Title field. Called once a file is staged,
+// since Title is the next thing that must be filled and is now required.
+function highlightTitle() {
+  const el = $('title');
+  el.focus({ preventScroll: true });
+  el.select(); // so an existing title can be typed straight over
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.remove('highlight-field');
+  void el.offsetWidth; // restart the animation if it is still running
+  el.classList.add('highlight-field');
+  clearTimeout(highlightTitle._t);
+  highlightTitle._t = setTimeout(() => el.classList.remove('highlight-field'), 2400);
+}
+
 async function choose(file) {
   if (!file) return;
   flash('');
@@ -228,7 +242,9 @@ async function choose(file) {
     // Deliberately NOT auto-filled from the filename: the title is what the
     // recipient sees in the chat preview before they open anything, so it
     // should be something chosen for them to read, not "scan_0043".
-    // A title already typed is left alone rather than wiped.
+    // A title already typed is left alone rather than wiped — just send
+    // focus there next, since it's the very next thing to fill in.
+    highlightTitle();
   } catch {
     picked = null;
     preview('');
@@ -332,8 +348,7 @@ $('send').addEventListener('click', async () => {
 
   const title = $('title').value.trim();
   if (!title) {
-    $('title').focus();
-    $('title').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    highlightTitle();
     return flash('Enter a title for this document.');
   }
 
