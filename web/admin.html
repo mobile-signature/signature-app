@@ -88,6 +88,36 @@
     </section>
   </main>
 
+  <!-- Change the expiry of a key that has already been issued -->
+  <div id="expirySheet" class="sheet hidden">
+    <div>
+      <h2>Update expiry</h2>
+      <p id="expiryFor">&nbsp;</p>
+      <div id="expiryMsg"></div>
+
+      <label for="newTtl">Valid from now for</label>
+      <div class="row" style="align-items:center">
+        <input id="newTtl" type="number" min="1" step="1" placeholder="e.g. 7" />
+        <select id="newTtlUnit" style="flex:0 0 auto;padding:13px 14px;font-size:16px;
+                color:var(--text);background:var(--surface-2);border:1px solid var(--line);
+                border-radius:10px">
+          <option value="days">days</option>
+          <option value="hours">hours</option>
+        </select>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
+        Counted from now, not from when the key was created. Extending a key
+        that has already expired makes it usable again.
+      </p>
+
+      <div class="row" style="margin-top:14px">
+        <button class="ghost" id="expiryCancel">Cancel</button>
+        <button class="secondary" id="expiryNever">Never expires</button>
+        <button id="expirySave">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/admin.js" type="module"></script>
 </body>
 </html>

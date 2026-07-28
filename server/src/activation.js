@@ -27,12 +27,16 @@ function sign(payload) {
 }
 
 export function issueToken({ serial, admin = false, wsExp = null }) {
-  // The device session never outlives its workspace: if the licence expires
-  // in 6 hours, so does this cookie. wsExp is kept alongside it so an expired
-  // workspace can be reported as such, rather than as a generic "not
-  // activated" that would send the user hunting for a key that still works.
-  let exp = Date.now() + MAX_AGE_DAYS * 24 * 3600 * 1000;
-  if (wsExp) exp = Math.min(exp, new Date(wsExp).getTime());
+  // The cookie is NOT cut short to match the workspace expiry. Every request
+  // re-checks the expiry in force server-side, so the cookie's own lifetime
+  // was only ever belt-and-braces — and cutting it short actively hurt two
+  // cases: an administrator extending a licence could not reach devices whose
+  // cookie the browser had already dropped, and an expired workspace looked
+  // like a generic "not activated" instead of saying who to contact.
+  //
+  // wsExp is still carried so an expired workspace can be named as such when
+  // no stored record exists to consult.
+  const exp = Date.now() + MAX_AGE_DAYS * 24 * 3600 * 1000;
   const payload = Buffer.from(JSON.stringify({ serial, admin, exp, wsExp })).toString('base64url');
   return `${payload}.${sign(payload)}`;
 }
@@ -71,11 +75,7 @@ export function readCookie(req, name) {
 
 export function setActivationCookie(req, res, payload) {
   const secure = req.secure || req.get('x-forwarded-proto') === 'https';
-  let maxAge = MAX_AGE_DAYS * 24 * 3600;
-  if (payload.wsExp) {
-    const remaining = Math.floor((new Date(payload.wsExp).getTime() - Date.now()) / 1000);
-    maxAge = Math.max(0, Math.min(maxAge, remaining));
-  }
+  const maxAge = MAX_AGE_DAYS * 24 * 3600; // see issueToken: expiry is enforced server-side
   const bits = [
     `${COOKIE_NAME}=${issueToken(payload)}`,
     'Path=/',

@@ -126,6 +126,34 @@ export function workspaceExpiresAt(serial) {
   return lic?.expiresAt || null;
 }
 
+/**
+ * The stored licence record, or null if there is none.
+ *
+ * Callers need to tell "no record" apart from "record says never expires" —
+ * workspaceExpiresAt() above collapses both to null, which is fine for the
+ * retention sweep (both mean "do not purge") but not for access control,
+ * where the two must lead to different decisions.
+ */
+export function licenseFor(serial) {
+  return db.licenses.find((l) => l.serial === serial) || null;
+}
+
+/**
+ * Overrides the expiry baked into the key. The key itself cannot be edited —
+ * its expiry is covered by the HMAC — so a change is recorded here and takes
+ * precedence, in exactly the way revocation already does.
+ *
+ * @param {string|null} expiresAt  ISO date, or null for "never expires"
+ */
+export function setLicenseExpiry(serial, expiresAt) {
+  const lic = db.licenses.find((l) => l.serial === serial);
+  if (!lic) return null;
+  lic.expiresAt = expiresAt;
+  lic.expiryUpdatedAt = new Date().toISOString();
+  persist();
+  return lic;
+}
+
 export function revokeSerial(serial, note = '') {
   if (!db.revoked.some((r) => r.serial === serial)) {
     db.revoked.push({ serial, note, at: new Date().toISOString() });

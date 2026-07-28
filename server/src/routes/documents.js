@@ -70,6 +70,26 @@ function sweepOpportunistically() {
   }
 }
 
+/**
+ * The expiry actually in force for a workspace.
+ *
+ * The key carries its own tamper-proof expiry, but an administrator must be
+ * able to extend or shorten a link after issuing it — and the key string
+ * cannot be edited without invalidating its signature. So a stored record,
+ * when one exists, takes precedence, exactly as revocation already does.
+ *
+ * If the record is missing (never written, or lost with the disk) this falls
+ * back to the expiry inside the key, so a wiped database can never turn a
+ * time-limited workspace into a permanent one.
+ *
+ * @param {string|null} embedded  expiry from the key / activation cookie
+ */
+function currentWorkspaceExpiry(serial, embedded = null) {
+  const lic = db.licenseFor(serial);
+  if (!lic) return embedded;
+  return lic.expiresAt || null; // null here genuinely means "never expires"
+}
+
 function licenceStatus(serial, wsExp = null) {
   if (!serial) return { ok: false, reason: 'Activation is no longer valid.' };
   if (envRevoked().has(serial) || db.revokedSerials().has(serial)) {
@@ -94,7 +114,7 @@ function requireActivation(req, res, next) {
       req.isAdmin = true;
       return next();
     }
-    const status = licenceStatus(token.serial, token.wsExp);
+    const status = licenceStatus(token.serial, currentWorkspaceExpiry(token.serial, token.wsExp));
     if (status.ok) {
       req.workspace = token.serial;
       req.isAdmin = false;
@@ -143,7 +163,8 @@ router.get('/activation', (req, res) => {
   if (!token) return res.json({ activated: false });
   if (token.admin) return res.json({ activated: true, admin: true });
 
-  const status = licenceStatus(token.serial, token.wsExp);
+  const inForce = currentWorkspaceExpiry(token.serial, token.wsExp);
+  const status = licenceStatus(token.serial, inForce);
   if (!status.ok) {
     clearActivationCookie(res);
     return res.json({ activated: false, reason: status.reason, expired: Boolean(status.expired) });
@@ -152,7 +173,7 @@ router.get('/activation', (req, res) => {
     activated: true,
     admin: false,
     licence: token.serial,
-    workspaceExpiresAt: token.wsExp || null,
+    workspaceExpiresAt: inForce,
   });
 });
 
@@ -176,8 +197,11 @@ router.post('/activation', (req, res) => {
   if (!inspected.valid) return res.status(401).json({ error: inspected.reason });
 
   // The expiry is carried inside the key itself, so a workspace whose time is
-  // up cannot be re-activated even on a device that has never seen it before.
-  const status = licenceStatus(inspected.serial, inspected.expiresAt);
+  // up cannot be re-activated even on a device that has never seen it before
+  // — unless the administrator has since extended it, which the stored
+  // override below reflects.
+  const inForce = currentWorkspaceExpiry(inspected.serial, inspected.expiresAt);
+  const status = licenceStatus(inspected.serial, inForce);
   if (!status.ok) {
     return res.status(403).json({ error: status.reason, expired: Boolean(status.expired) });
   }
@@ -185,11 +209,11 @@ router.post('/activation', (req, res) => {
   setActivationCookie(req, res, {
     serial: inspected.serial,
     admin: false,
-    wsExp: inspected.expiresAt,
+    wsExp: inForce,
   });
   db.recordActivation({ serial: inspected.serial, device: describeDevice(req), ip: req.ip });
   activationAttempts.delete(req.ip);
-  res.json({ ok: true, licence: inspected.serial, workspaceExpiresAt: inspected.expiresAt });
+  res.json({ ok: true, licence: inspected.serial, workspaceExpiresAt: inForce });
 });
 
 // Deactivate this device. Behind the staff password so a borrowed device
@@ -283,6 +307,38 @@ router.get('/licenses', requireAdmin, (_req, res) => {
       documents: db.listDocuments(l.serial).length,
     })),
   );
+});
+
+/**
+ * Change a workspace's expiry after the key has been issued.
+ *
+ * The key string itself is immutable — its expiry is signed — so this records
+ * an override that takes precedence. Extending revives an already-expired
+ * workspace; shortening (or setting a past time) ends it early.
+ */
+router.patch('/licenses/:serial/expiry', requireAdmin, (req, res) => {
+  const serial = normalize(req.params.serial).slice(0, SERIAL_LENGTH);
+  if (!db.licenseFor(serial)) {
+    return res.status(404).json({ error: 'No record of that key on this server.' });
+  }
+
+  // { never: true } clears the expiry; otherwise ttl + unit sets a new one
+  // measured from now, matching how keys are issued.
+  if (req.body?.never === true) {
+    db.setLicenseExpiry(serial, null);
+    return res.json({ ok: true, serial, expiresAt: null });
+  }
+
+  const unit = req.body?.ttlUnit === 'days' ? 'days' : 'hours';
+  const rawTtl = Number(req.body?.ttl);
+  if (!Number.isFinite(rawTtl) || rawTtl <= 0) {
+    return res.status(400).json({ error: 'Enter how long this key should stay valid.' });
+  }
+  const ttlHours = Math.min(unit === 'days' ? rawTtl * 24 : rawTtl, MAX_TTL_HOURS);
+  const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
+
+  db.setLicenseExpiry(serial, expiresAt);
+  res.json({ ok: true, serial, expiresAt });
 });
 
 router.post('/licenses/:serial/revoke', requireAdmin, (req, res) => {

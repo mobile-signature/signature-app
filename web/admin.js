@@ -123,9 +123,12 @@ $('create').addEventListener('click', async () => {
 
 $('refresh').addEventListener('click', load);
 
+let lastLicences = []; // so the expiry dialog can show the current setting
+
 async function load() {
   try {
     const licences = await api('/api/licenses');
+    lastLicences = licences;
     if (!licences.length) {
       $('list').innerHTML = '<p style="color:var(--muted);font-size:14px">No keys issued yet.</p>';
       return;
@@ -143,6 +146,7 @@ async function load() {
                 ? `expires ${new Date(l.expiresAt).toLocaleString()}`
                 : 'never expires'}</span>
           <button class="secondary" data-copy="${esc(l.key)}">Copy</button>
+          <button class="secondary" data-expiry="${esc(l.serial)}">Expiry</button>
           ${l.revoked
             ? `<button class="secondary" data-restore="${esc(l.serial)}">Restore</button>`
             : `<button class="danger" data-revoke="${esc(l.serial)}">Revoke</button>`}
@@ -153,8 +157,66 @@ async function load() {
   }
 }
 
+/* ------------------------------------------------------- expiry dialog */
+
+let expiryTarget = null; // serial currently being edited
+
+function openExpiry(serial) {
+  const lic = lastLicences.find((l) => l.serial === serial);
+  expiryTarget = serial;
+  $('expiryFor').textContent = lic
+    ? `${lic.label || 'No label'} — ${lic.expired
+        ? 'currently expired'
+        : lic.expiresAt
+          ? `currently expires ${new Date(lic.expiresAt).toLocaleString()}`
+          : 'currently never expires'}`
+    : serial;
+  $('expiryMsg').innerHTML = '';
+  $('newTtl').value = '';
+  show($('expirySheet'), true);
+  setTimeout(() => $('newTtl').focus(), 60);
+}
+
+function closeExpiry() {
+  show($('expirySheet'), false);
+  expiryTarget = null;
+}
+
+async function saveExpiry(body) {
+  if (!expiryTarget) return;
+  $('expirySave').disabled = true;
+  $('expiryNever').disabled = true;
+  try {
+    const out = await api(`/api/licenses/${expiryTarget}/expiry`, { method: 'PATCH', body });
+    closeExpiry();
+    flash(out.expiresAt
+      ? `Expiry updated — now valid until ${new Date(out.expiresAt).toLocaleString()}`
+      : 'Expiry removed — this key no longer expires', 'ok');
+    load();
+  } catch (err) {
+    $('expiryMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  } finally {
+    $('expirySave').disabled = false;
+    $('expiryNever').disabled = false;
+  }
+}
+
+$('expiryCancel').addEventListener('click', closeExpiry);
+$('expiryNever').addEventListener('click', () => saveExpiry({ never: true }));
+$('expirySave').addEventListener('click', () => {
+  const ttl = $('newTtl').value.trim();
+  if (!ttl) {
+    $('expiryMsg').innerHTML = '<div class="msg err">Enter how long it should stay valid.</div>';
+    return $('newTtl').focus();
+  }
+  saveExpiry({ ttl, ttlUnit: $('newTtlUnit').value });
+});
+$('newTtl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('expirySave').click(); });
+
 $('list').addEventListener('click', async (e) => {
-  const { copy, revoke, restore } = e.target.dataset || {};
+  const { copy, revoke, restore, expiry } = e.target.dataset || {};
+
+  if (expiry) return openExpiry(expiry);
 
   if (copy) {
     try {
