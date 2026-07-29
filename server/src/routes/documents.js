@@ -397,6 +397,12 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
       return res.status(400).json({ error: 'A title is required.' });
     }
 
+    const signerName = String(req.body.signerName || '').trim().slice(0, 120);
+    if (!signerName) {
+      await fsp.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: "The recipient's name is required." });
+    }
+
     const id = nanoid(12);
     const stored = path.join(UPLOAD_DIR, `${id}.pdf`);
 
@@ -468,7 +474,7 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
       workspace: req.workspace,
       token: nanoid(32),
       title,
-      signerName: String(req.body.signerName || '').slice(0, 120),
+      signerName,
       signerEmail: String(req.body.signerEmail || '').slice(0, 200),
       accessCodeHash: accessCode ? hashCode(accessCode) : null,
       status: 'sent',

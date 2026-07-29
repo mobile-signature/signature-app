@@ -88,8 +88,9 @@
       <input id="title" type="text" placeholder="Rental agreement" required
              aria-required="true" maxlength="200" />
 
-      <label for="signerName">Recipient name</label>
-      <input id="signerName" type="text" placeholder="Jane Doe" autocomplete="name" />
+      <label for="signerName">Recipient name <span style="color:var(--danger)">*</span></label>
+      <input id="signerName" type="text" placeholder="Jane Doe" autocomplete="name" required
+             aria-required="true" maxlength="120" />
 
       <label for="signerEmail">Recipient email (optional, for your records)</label>
       <input id="signerEmail" type="email" placeholder="jane@example.com" autocomplete="off" />
