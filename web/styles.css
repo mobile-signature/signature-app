@@ -348,12 +348,23 @@ button.block { width: 100%; }
 
 /* Announces a document flipping to Signed while the sender app is open.
    Auto-dismisses; a tap clears it early. */
-.signed-toast {
+/* Toasts live in a stack rather than each being pinned to the same spot, so
+   several documents signed close together queue up instead of overlapping. */
+.toast-stack {
   position: fixed;
   left: 50%;
   bottom: 20px;
   transform: translateX(-50%);
   z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none; /* the empty stack must not block the page */
+}
+
+.signed-toast {
+  pointer-events: auto; /* but each toast is still tappable */
   max-width: min(360px, calc(100vw - 32px));
   background: var(--surface);
   color: var(--text);
@@ -367,10 +378,11 @@ button.block { width: 100%; }
   animation: toast-in 0.25s ease;
 }
 .signed-toast b { color: var(--ok); }
+.signed-toast small { color: var(--muted); }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translate(-50%, 12px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
   .signed-toast { animation: none; }

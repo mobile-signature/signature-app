@@ -476,11 +476,21 @@ async function refreshList({ userInitiated = false } = {}) {
     // of the page (that would announce every already-signed document at
     // once) and never merely for re-fetching the same status again.
     if (firstLoadDone) {
-      for (const d of docs) {
+      const newlySigned = docs.filter((d) => {
         const was = lastKnownStatus.get(d.id);
-        if (was && was !== 'signed' && d.status === 'signed') {
-          announceSigned(d);
-        }
+        return was && was !== 'signed' && d.status === 'signed';
+      });
+      // One at a time, not all at once: several downloads fired in the same
+      // instant is exactly the pattern browsers treat as suspicious, and
+      // Chrome would interrupt with an "allow multiple downloads?" prompt.
+      // Detached from this function so the list still renders immediately.
+      if (newlySigned.length) {
+        (async () => {
+          for (const d of newlySigned) {
+            await announceSigned(d);
+            if (newlySigned.length > 1) await new Promise((r) => setTimeout(r, 900));
+          }
+        })();
       }
     }
     lastKnownStatus = new Map(docs.map((d) => [d.id, d.status]));
@@ -507,16 +517,68 @@ async function refreshList({ userInitiated = false } = {}) {
   }
 }
 
-function announceSigned(doc) {
+// Documents already saved automatically in this session, so a re-detected
+// transition can never write the same file twice.
+const autoSaved = new Set();
+
+function toastStack() {
+  let stack = document.querySelector('.toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+
+async function announceSigned(doc) {
   const box = document.createElement('div');
   box.className = 'signed-toast';
-  box.innerHTML =
-    `<b>✓ Signed</b><br />${escapeHtml(doc.title)}` +
+  const heading = `<b>✓ Signed</b><br />${escapeHtml(doc.title)}` +
     (doc.signerName ? ` — ${escapeHtml(doc.signerName)}` : '');
-  document.body.appendChild(box);
-  // Let the user dismiss it early, otherwise it clears itself.
-  box.addEventListener('click', () => box.remove());
-  setTimeout(() => box.remove(), 8000);
+  box.innerHTML = heading;
+  toastStack().appendChild(box);
+
+  // Tapping the toast always downloads; on desktop it also fires by itself.
+  let dismissAfter = 8000;
+  box.addEventListener('click', async () => {
+    try {
+      await downloadDocument(doc.id, doc.title);
+      box.remove();
+    } catch {
+      box.innerHTML = `${heading}<br /><small>Download failed — use Get in the list.</small>`;
+    }
+  });
+
+  /**
+   * Auto-save, desktop only.
+   *
+   * This is allowed precisely because the page is already open and running —
+   * the save happens in the same live context that just noticed the change,
+   * not out of nowhere. Browsers block downloads that arrive without any
+   * page activity behind them, which is why this cannot work when the app is
+   * closed; then it is genuinely the browser refusing, not a bug.
+   *
+   * Deliberately skipped on phones: iOS Safari in particular will not write a
+   * file without a tap, and a silent failure there would be worse than simply
+   * leaving the toast tappable.
+   */
+  if (!isMobileDevice && !autoSaved.has(doc.id)) {
+    autoSaved.add(doc.id);
+    try {
+      await downloadDocument(doc.id, doc.title);
+      box.innerHTML = `${heading}<br /><small>Saved to your Downloads folder.</small>`;
+    } catch {
+      // Blocked, offline, or the file is gone from a restarted free instance.
+      autoSaved.delete(doc.id); // let a tap retry it
+      box.innerHTML = `${heading}<br /><small>Tap to download.</small>`;
+      dismissAfter = 15000; // needs a tap, so give it longer to be noticed
+    }
+  } else if (isMobileDevice) {
+    box.innerHTML = `${heading}<br /><small>Tap to download.</small>`;
+  }
+
+  setTimeout(() => box.remove(), dismissAfter);
 }
 
 // Polls in the background so a signed document appears without pressing
@@ -544,25 +606,38 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-$('list').addEventListener('click', async (e) => {
-  const id = e.target.dataset?.dl;
-  if (!id) return;
-  // The activation cookie authenticates this; then hand the blob to the OS.
+/**
+ * Saves a document to the machine's normal downloads location.
+ *
+ * Shared by the Get button and the auto-save on signing, so both name the
+ * file the same way and any fix reaches both.
+ *
+ * Fetching the blob ourselves (rather than pointing a link at the download
+ * route) means the browser never sees the server's Content-Disposition
+ * filename — a.download is then the only thing deciding the saved name, so it
+ * is built from the title here, with the same sanitisation the server applies.
+ */
+async function downloadDocument(id, title) {
   const res = await fetch(`/api/documents/${id}/download`, { credentials: 'same-origin' });
-  if (!res.ok) return flash('Could not download that document.');
+  if (!res.ok) throw new Error('Could not download that document.');
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  // Fetching the blob ourselves (rather than a plain link to the download
-  // route) means the browser never sees the server's Content-Disposition
-  // filename — a.download is the only thing that decides the saved name, so
-  // it has to be built from the title here, same sanitisation the server
-  // already applies for consistency.
-  const title = (e.target.dataset.title || '').trim().replace(/[^\w.\- ]+/g, '_');
-  a.download = `${title || id}.pdf`;
+  const safe = String(title || '').trim().replace(/[^\w.\- ]+/g, '_');
+  a.download = `${safe || id}.pdf`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+$('list').addEventListener('click', async (e) => {
+  const id = e.target.dataset?.dl;
+  if (!id) return;
+  try {
+    await downloadDocument(id, e.target.dataset.title);
+  } catch (err) {
+    flash(err.message);
+  }
 });
 
 /* ------------------------------------------------------------------ boot */
