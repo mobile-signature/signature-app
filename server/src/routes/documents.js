@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
@@ -7,6 +6,7 @@ import multer from 'multer';
 import { nanoid } from 'nanoid';
 import { UPLOAD_DIR, MAX_UPLOAD_BYTES, PUBLIC_URL, LINK_TTL_HOURS, apiKey } from '../config.js';
 import * as db from '../db.js';
+import { mirrorFile, ensureLocal } from '../store/files.js';
 import { stampPdf, pageCountOf } from '../pdf.js';
 import { imageToPdf, sniffImageType } from '../convert.js';
 import { renderFirstPageToPng } from '../thumbnail.js';
@@ -490,6 +490,13 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
       signedAt: null,
     });
 
+    // Copied into the durable store only now that the upload has fully
+    // succeeded — a file rejected above never leaves an orphan behind. Awaited
+    // so that by the time the sender is handed a link, the document is already
+    // safe from the disk being wiped, rather than a moment later.
+    await mirrorFile(stored);
+    if (previewExt) await mirrorFile(path.join(UPLOAD_DIR, `${id}-preview.${previewExt}`));
+
     db.logEvent(id, 'created', { pageCount, sourceKind });
     res.status(201).json(publicView(doc));
   } catch (err) {
@@ -510,11 +517,15 @@ router.get('/documents/:id', requireApiKey, (req, res) => {
   res.json({ ...publicView(doc), events: db.eventsFor(doc.id) });
 });
 
-router.get('/documents/:id/download', requireApiKey, (req, res) => {
+router.get('/documents/:id/download', requireApiKey, async (req, res) => {
   const doc = db.getDocumentById(req.params.id, req.workspace);
   if (!doc) return res.status(404).json({ error: 'Not found' });
-  const file = doc.signedPath && fs.existsSync(doc.signedPath) ? doc.signedPath : doc.sourcePath;
-  if (!fs.existsSync(file)) {
+  // ensureLocal answers with the path to read, restoring the file from the
+  // durable store first if this machine's disk no longer has it, and null only
+  // when it is genuinely gone — the same condition the 410 always meant.
+  const signed = doc.signedPath ? await ensureLocal(doc.signedPath) : null;
+  const file = signed || (await ensureLocal(doc.sourcePath));
+  if (!file) {
     return res.status(410).json({ error: 'That document is no longer stored on the server.' });
   }
   res.download(file, `${doc.title.replace(/[^\w.\- ]+/g, '_')}.pdf`);
@@ -593,13 +604,15 @@ router.post('/sign/:token/open', (req, res) => {
   });
 });
 
-router.get('/sign/:token/file', (req, res) => {
+router.get('/sign/:token/file', async (req, res) => {
   const doc = db.getDocumentByToken(req.params.token);
   if (!doc) return res.sendStatus(404);
   if (!redeemTicket(String(req.query.ticket || ''), doc.id)) {
     return res.status(401).json({ error: 'Session expired. Reopen the link.' });
   }
-  const file = doc.signedPath && fs.existsSync(doc.signedPath) ? doc.signedPath : doc.sourcePath;
+  const signed = doc.signedPath ? await ensureLocal(doc.signedPath) : null;
+  const file = signed || (await ensureLocal(doc.sourcePath));
+  if (!file) return res.sendStatus(404);
   // sendFile (not a raw pipe) so Content-Length and Accept-Ranges are set.
   // pdf.js issues range requests to stream large documents; without them it
   // stalls partway through rendering.
@@ -618,12 +631,12 @@ router.get('/sign/:token/file', (req, res) => {
  * respects revocation, matching the title-hiding rule on the /s/:token page:
  * a revoked or unknown link shows nothing about what it used to contain.
  */
-router.get('/sign/:token/preview', (req, res) => {
+router.get('/sign/:token/preview', async (req, res) => {
   const doc = db.getDocumentByToken(req.params.token);
   if (!doc || doc.status === 'revoked' || !doc.previewExt) return res.sendStatus(404);
 
-  const file = path.join(UPLOAD_DIR, `${doc.id}-preview.${doc.previewExt}`);
-  if (!fs.existsSync(file)) return res.sendStatus(404);
+  const file = await ensureLocal(path.join(UPLOAD_DIR, `${doc.id}-preview.${doc.previewExt}`));
+  if (!file) return res.sendStatus(404);
 
   res.sendFile(file, {
     headers: {
@@ -653,16 +666,24 @@ router.post('/sign/:token/complete', async (req, res, next) => {
     const signerName = String(req.body?.signerName || doc.signerName || '').trim().slice(0, 120);
     if (!signerName) return res.status(400).json({ error: 'Please type your full name.' });
 
+    // Restored from the durable store if this instance's disk has been
+    // recycled since the link was sent — otherwise a recipient who opens a
+    // perfectly valid link after a restart could not sign at all.
+    const sourcePath = await ensureLocal(doc.sourcePath);
+    if (!sourcePath) {
+      return res.status(410).json({ error: 'That document is no longer stored on the server.' });
+    }
+
     const signedPath = path.join(UPLOAD_DIR, `${doc.id}-signed.pdf`);
     const signedAt = new Date().toISOString();
     const hash = crypto
       .createHash('sha256')
-      .update(await fsp.readFile(doc.sourcePath))
+      .update(await fsp.readFile(sourcePath))
       .digest('hex')
       .slice(0, 32);
 
     await stampPdf({
-      sourcePath: doc.sourcePath,
+      sourcePath,
       outputPath: signedPath,
       fields: req.body?.fields,
       audit: {
@@ -673,6 +694,10 @@ router.post('/sign/:token/complete', async (req, res, next) => {
         hash,
       },
     });
+
+    // The signed PDF is the one copy that matters most — it is the executed
+    // agreement, and retention keeps it even after the workspace expires.
+    await mirrorFile(signedPath);
 
     db.updateDocument(doc.id, { status: 'signed', signedPath, signedAt, signerName });
     db.logEvent(doc.id, 'signed', {

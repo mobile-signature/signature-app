@@ -30,6 +30,14 @@ services:
       - key: LINK_TTL_HOURS
         value: "168"
 
+      # Durable storage — the answer to the disk problem described below.
+      # Paste a MongoDB connection string here in the Render dashboard
+      # (Environment -> Add Environment Variable) and documents survive the
+      # free plan wiping its disk. Left unset, the app runs exactly as before
+      # and keeps everything on the local disk only.
+      - key: MONGODB_URI
+        sync: false
+
       # No DATA_DIR on the free plan: it defaults to ./data inside the project,
       # which is writable. Only point it at /var/data once you attach a real
       # disk (see the note below) — otherwise the app cannot write at all.
@@ -41,8 +49,16 @@ services:
 # or wakes from sleep. Uploaded and signed documents WILL BE LOST, and signing
 # links your recipients already hold will stop working.
 #
-# Free is fine for testing that real phones can reach the app. It is NOT
-# suitable for documents that matter.
+# TWO WAYS TO FIX THIS — either is enough on its own:
+#
+#   1. Set MONGODB_URI (free). Records AND document bytes are mirrored to
+#      MongoDB and reloaded at boot, so a wiped disk costs nothing. Stays on
+#      the free plan. See .env.example for the connection-string format.
+#
+#   2. Pay for a disk (~$7/month). See the Starter instructions below.
+#
+# With neither, free is fine for testing that real phones can reach the app,
+# but it is NOT suitable for documents that matter.
 #
 # For real use, switch to the Starter plan (~$7/month) and attach a disk by
 # changing `plan: free` to `plan: starter` and uncommenting:

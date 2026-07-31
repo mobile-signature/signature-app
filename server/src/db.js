@@ -1,9 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
+import * as mongo from './store/mongo.js';
 
 // Tiny synchronous JSON store. No native modules, so `npm install` never needs
-// a C++ toolchain on Windows. Swap for Postgres/SQLite if you outgrow it.
+// a C++ toolchain on Windows.
+//
+// When MONGODB_URI is set the same state is mirrored into MongoDB and read
+// back from there at boot, because a free-tier host's disk does not survive a
+// restart. Reads stay synchronous and in-memory either way — the collections
+// are small, one process owns them, and making them async would mean touching
+// every route that reads a document.
 
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
@@ -23,10 +30,37 @@ function load() {
 
 let db = load();
 
+/**
+ * Replaces the local state with what MongoDB holds. Must finish before the
+ * server accepts requests, so nothing is ever answered from a blank slate.
+ *
+ * Throws if MongoDB is configured but unreachable. That is deliberate: an
+ * instance that starts up empty and then saves would overwrite every stored
+ * record with nothing, so refusing to start is the safe failure. The host
+ * restarts it, and a transient outage stays transient.
+ */
+export async function hydrate() {
+  if (!mongo.mongoEnabled()) return { source: 'file', documents: db.documents.length };
+  if (!(await mongo.connect())) {
+    throw new Error('MONGODB_URI is set but the database could not be reached.');
+  }
+  db = { ...emptyDb(), ...(await mongo.loadAll()) };
+  return { source: 'mongo', documents: db.documents.length };
+}
+
 function persist() {
-  const tmp = `${DB_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, DB_FILE); // atomic-ish: never leaves a half-written db.json
+  try {
+    const tmp = `${DB_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+    fs.renameSync(tmp, DB_FILE); // atomic-ish: never leaves a half-written db.json
+  } catch (err) {
+    // With MongoDB holding the durable copy, a local write failure is a
+    // degraded cache, not lost data. Without it, this file IS the data, so
+    // the failure must surface exactly as it always has.
+    if (!mongo.mongoEnabled()) throw err;
+    console.error(`[db] local cache write failed: ${err.message}`);
+  }
+  mongo.saveAll(db); // async; the request never waits on the network
 }
 
 export function createDocument(doc) {

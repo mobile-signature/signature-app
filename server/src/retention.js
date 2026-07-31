@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { UPLOAD_DIR } from './config.js';
+import { forgetFile } from './store/files.js';
 import * as db from './db.js';
 
 /**
@@ -39,6 +40,10 @@ function removeFileQuietly(file) {
   } catch {
     // A file that cannot be deleted must not abort the rest of the sweep.
   }
+  // The durable copy goes too, or a purge would only be local and the file
+  // would outlive the record it belonged to. Not awaited: the sweep is
+  // synchronous by design, and the record is already gone either way.
+  forgetFile(file).catch(() => {});
 }
 
 function filesOf(doc) {

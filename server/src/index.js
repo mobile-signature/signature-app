@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { PORT, PUBLIC_URL, WEB_DIR, apiKey } from './config.js';
 import { router as api } from './routes/documents.js';
 import * as db from './db.js';
+import { backfill } from './store/files.js';
 import { startRetentionEngine } from './retention.js';
 
 const app = express();
@@ -157,6 +158,22 @@ app.use((err, _req, res, _next) => {
   if (status >= 500) console.error(err);
   res.status(status).json({ error: err.message || 'Server error' });
 });
+
+// Durable state first, before anything is served and before the retention
+// sweep below runs. Sweeping an unloaded database would see no documents, and
+// answering a request from one would report that a document does not exist.
+try {
+  const state = await db.hydrate();
+  console.log(`[boot] ${state.documents} document(s) loaded from ${state.source}`);
+} catch (err) {
+  console.error(`[boot] ${err.message}`);
+  console.error('[boot] refusing to start on an empty database — retrying is safer than overwriting it.');
+  process.exit(1);
+}
+
+// Documents that predate the durable store still exist only on this disk.
+// Deliberately not awaited: protecting old files must not delay serving.
+backfill(db.allDocuments()).catch((err) => console.error(`[boot] backfill failed: ${err.message}`));
 
 // Purges unsigned documents belonging to workspaces whose time is up. Signed
 // documents are deliberately retained — see retention.js.
