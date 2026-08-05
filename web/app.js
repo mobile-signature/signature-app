@@ -645,22 +645,46 @@ async function downloadDocument(id, title) {
 }
 
 /**
+ * Custom stand-in for window.confirm(), so the dialog can carry the app's own
+ * name and styling instead of the browser chrome ("<origin> says ..."), and
+ * say more when the document is a signed agreement than when it is an
+ * unsigned draft — those two carry very different consequences even though
+ * the button that triggers them looks identical.
+ */
+function confirmDelete(title, signed) {
+  $('deleteTitle').textContent = signed ? 'Delete Signed Document?' : 'Delete Document?';
+  $('deleteMsg').innerHTML = signed
+    ? `Are you sure you want to delete <b>${escapeHtml(title)}</b>?<br /><br />` +
+      'Before continuing, make sure you have saved a copy of the signed PDF. ' +
+      'Once deleted, the signed document and its audit trail cannot be recovered.'
+    : `Are you sure you want to delete <b>${escapeHtml(title)}</b>?<br /><br />` +
+      'Once deleted, it cannot be recovered and its link will stop working.';
+
+  show($('deleteSheet'), true);
+
+  return new Promise((resolve) => {
+    const cancelBtn = $('deleteCancel');
+    const goBtn = $('deleteGo');
+    const done = (result) => {
+      show($('deleteSheet'), false);
+      cancelBtn.removeEventListener('click', onCancel);
+      goBtn.removeEventListener('click', onGo);
+      resolve(result);
+    };
+    const onCancel = () => done(false);
+    const onGo = () => done(true);
+    cancelBtn.addEventListener('click', onCancel);
+    goBtn.addEventListener('click', onGo);
+  });
+}
+
+/**
  * Deleting is the only action in the app with no undo: the record, the audit
  * trail and the PDF all go, from the durable store as well as this machine.
- *
- * So the warning names the document being destroyed rather than asking "are
- * you sure?", and says more when that document is a signed agreement than
- * when it is an unsigned draft — those two carry very different consequences,
- * and the button that triggers them looks identical.
  */
 async function deleteDocument(btn) {
   const { del: id, title, signed } = btn.dataset;
-  const warning = signed
-    ? `Delete the SIGNED document "${title}"?\n\n` +
-      'The signed PDF and its audit trail are destroyed permanently. Unless you ' +
-      'have saved a copy, nothing will be left to show it was ever signed.'
-    : `Delete "${title}"?\n\nThe document is destroyed permanently and its link stops working.`;
-  if (!confirm(warning)) return;
+  if (!(await confirmDelete(title, Boolean(signed)))) return;
 
   btn.disabled = true;
   try {

@@ -131,6 +131,23 @@
     </section>
   </main>
 
+  <!-- Delete confirmation, used instead of the browser's confirm() so the
+       dialog can carry the app's own name and styling. -->
+  <div id="deleteSheet" class="sheet hidden">
+    <div>
+      <div class="delete-brand">Mobile Signature</div>
+      <div class="delete-heading">
+        <span class="delete-icon" aria-hidden="true">⚠️</span>
+        <h2 id="deleteTitle">Delete Signed Document?</h2>
+      </div>
+      <p id="deleteMsg"></p>
+      <div class="row">
+        <button class="secondary" id="deleteCancel">Cancel</button>
+        <button class="danger" id="deleteGo">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Staff password, shown before Licences or Deactivate -->
   <div id="gateSheet" class="sheet hidden">
     <div>
