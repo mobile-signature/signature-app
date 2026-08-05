@@ -358,6 +358,42 @@ router.post('/licenses/:serial/restore', requireAdmin, (req, res) => {
   res.json({ ok: true, serial, revoked: envRevoked().has(serial) });
 });
 
+/**
+ * Deletes every document created under one key within a date range,
+ * inclusive of both ends. Scoped to :serial exactly like every other
+ * per-key route, so a range delete can never reach another key's
+ * documents, and reuses the same purgeDocumentFiles/revokeTicketsFor/
+ * deleteDocuments trio the single-document delete route uses, so it
+ * leaves nothing behind that a single delete would.
+ */
+router.post('/licenses/:serial/documents/delete', requireAdmin, (req, res) => {
+  const serial = normalize(req.params.serial).slice(0, SERIAL_LENGTH);
+
+  const from = new Date(req.body?.from);
+  const to = new Date(req.body?.to);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return res.status(400).json({ error: 'Enter a valid From and To date.' });
+  }
+  // "To" covers its whole day, not just its midnight instant.
+  const toEnd = new Date(to);
+  toEnd.setHours(23, 59, 59, 999);
+  if (toEnd < from) {
+    return res.status(400).json({ error: 'The From date must be before the To date.' });
+  }
+
+  const targets = db.listDocuments(serial).filter((d) => {
+    const created = new Date(d.createdAt).getTime();
+    return created >= from.getTime() && created <= toEnd.getTime();
+  });
+
+  targets.forEach(purgeDocumentFiles);
+  targets.forEach((d) => revokeTicketsFor(d.id));
+  const deleted = db.deleteDocuments(targets.map((d) => d.id));
+
+  console.log(`[licenses] ${deleted} document(s) deleted for ${serial} (${req.body?.from} to ${req.body?.to})`);
+  res.json({ ok: true, deleted });
+});
+
 router.get('/activations', requireAdmin, (_req, res) => {
   res.json(db.allActivations());
 });

@@ -118,6 +118,32 @@
     </div>
   </div>
 
+  <!-- Bulk-delete the documents created under one key, within a date range -->
+  <div id="removeSheet" class="sheet hidden">
+    <div>
+      <h2>Remove documents</h2>
+      <p id="removeFor">&nbsp;</p>
+      <div id="removeMsg"></div>
+
+      <label for="removeFrom">From date</label>
+      <input id="removeFrom" type="date" />
+
+      <label for="removeTo">To date</label>
+      <input id="removeTo" type="date" />
+
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
+        Only documents created under this key, on or between these two dates,
+        are deleted. Documents from every other key are untouched. This cannot
+        be undone.
+      </p>
+
+      <div class="row" style="margin-top:14px">
+        <button class="ghost" id="removeCancel">Cancel</button>
+        <button class="danger" id="removeGo">Remove</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/admin.js" type="module"></script>
 </body>
 </html>

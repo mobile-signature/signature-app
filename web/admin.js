@@ -147,6 +147,7 @@ async function load() {
                 : 'never expires'}</span>
           <button class="secondary" data-copy="${esc(l.key)}">Copy</button>
           <button class="secondary" data-expiry="${esc(l.serial)}">Expiry</button>
+          <button class="secondary" data-remove="${esc(l.serial)}">Remove</button>
           ${l.revoked
             ? `<button class="secondary" data-restore="${esc(l.serial)}">Restore</button>`
             : `<button class="danger" data-revoke="${esc(l.serial)}">Revoke</button>`}
@@ -213,10 +214,61 @@ $('expirySave').addEventListener('click', () => {
 });
 $('newTtl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('expirySave').click(); });
 
+/* --------------------------------------------------- bulk-delete dialog */
+
+let removeTarget = null; // serial currently being cleared
+
+function openRemove(serial) {
+  const lic = lastLicences.find((l) => l.serial === serial);
+  removeTarget = serial;
+  $('removeFor').textContent = lic
+    ? `${lic.label || 'No label'} — ${lic.documents} doc${lic.documents === 1 ? '' : 's'} on this key`
+    : serial;
+  $('removeMsg').innerHTML = '';
+  $('removeFrom').value = '';
+  $('removeTo').value = '';
+  show($('removeSheet'), true);
+  setTimeout(() => $('removeFrom').focus(), 60);
+}
+
+function closeRemove() {
+  show($('removeSheet'), false);
+  removeTarget = null;
+}
+
+$('removeCancel').addEventListener('click', closeRemove);
+$('removeGo').addEventListener('click', async () => {
+  if (!removeTarget) return;
+  const from = $('removeFrom').value;
+  const to = $('removeTo').value;
+  if (!from || !to) {
+    $('removeMsg').innerHTML = '<div class="msg err">Choose both a From date and a To date.</div>';
+    return;
+  }
+  if (!confirm('Delete every document on this key created in that date range? This cannot be undone.')) {
+    return;
+  }
+  $('removeGo').disabled = true;
+  try {
+    const out = await api(`/api/licenses/${removeTarget}/documents/delete`, {
+      method: 'POST',
+      body: { from, to },
+    });
+    closeRemove();
+    flash(`Deleted ${out.deleted} document${out.deleted === 1 ? '' : 's'}.`, 'ok');
+    load();
+  } catch (err) {
+    $('removeMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  } finally {
+    $('removeGo').disabled = false;
+  }
+});
+
 $('list').addEventListener('click', async (e) => {
-  const { copy, revoke, restore, expiry } = e.target.dataset || {};
+  const { copy, revoke, restore, expiry, remove } = e.target.dataset || {};
 
   if (expiry) return openExpiry(expiry);
+  if (remove) return openRemove(remove);
 
   if (copy) {
     try {
