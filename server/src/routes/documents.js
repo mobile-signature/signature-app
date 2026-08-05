@@ -15,10 +15,15 @@ import {
   COOKIE_NAME, readCookie, readToken, setActivationCookie, clearActivationCookie, describeDevice,
 } from '../activation.js';
 import { GATE_COOKIE, checkPassword, setGateCookie, verifyGateToken } from '../gate.js';
-import { EXPIRED_MESSAGE, sweep } from '../retention.js';
+import { EXPIRED_MESSAGE, sweep, purgeDocumentFiles } from '../retention.js';
 import { issueTicket, redeemTicket, revokeTicketsFor } from '../tickets.js';
 
 export const router = express.Router();
+
+// Must match the sentence next to the checkbox in web/sign.html word for word —
+// this is what gets stamped on the signed PDF and logged as proof of what the
+// signer actually agreed to, so it needs to be the same text they saw.
+const CONSENT_TEXT = 'I agree that my electronic signature is the legal equivalent of my handwritten signature on this document.';
 
 const ACCEPTED = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
@@ -540,6 +545,39 @@ router.post('/documents/:id/revoke', requireApiKey, (req, res) => {
   res.json(publicView(db.getDocumentById(doc.id, req.workspace)));
 });
 
+/**
+ * Delete a document outright: the record, its audit trail, and every file it
+ * owns — from local disk AND from the durable store, so a later restart cannot
+ * resurrect what was deleted. There is no undo.
+ *
+ * Signed documents are deletable here even though the retention sweep refuses
+ * to touch them. That is not a contradiction: the sweep's rule exists because
+ * an automatic timer destroying an executed agreement is an accident nobody
+ * asked for, whereas this is a person naming one specific document. The
+ * warning that this is irreversible belongs in the interface, and is there.
+ *
+ * Scoped to req.workspace like every other document route, so one tenant can
+ * never delete another's work — and an unknown id is a 404, not a 403, since
+ * "you may not delete this" would confirm the id exists.
+ */
+router.delete('/documents/:id', requireApiKey, (req, res) => {
+  const doc = db.getDocumentById(req.params.id, req.workspace);
+  if (!doc) return res.status(404).json({ error: 'Not found' });
+
+  purgeDocumentFiles(doc);
+  // A recipient part-way through signing holds a ticket, not a lock. Dropping
+  // it closes that window immediately rather than letting an in-flight session
+  // keep reading a document its owner has just deleted.
+  revokeTicketsFor(doc.id);
+  db.deleteDocuments([doc.id]);
+
+  // Logged to the console, not to the audit trail — the trail went with the
+  // document. Without this line a deliberate deletion would leave no trace at
+  // all, which for the one irreversible action in the app is worth avoiding.
+  console.log(`[documents] ${doc.id} deleted by workspace ${req.workspace}`);
+  res.json({ ok: true, id: doc.id });
+});
+
 /* --------------------------------------------------------------- recipient */
 
 const attempts = new Map(); // token -> { count, resetAt }
@@ -692,6 +730,7 @@ router.post('/sign/:token/complete', async (req, res, next) => {
         ip: req.ip,
         documentId: doc.id,
         hash,
+        consentText: CONSENT_TEXT,
       },
     });
 
@@ -706,6 +745,7 @@ router.post('/sign/:token/complete', async (req, res, next) => {
       ua: req.get('user-agent')?.slice(0, 180),
       fieldCount: Array.isArray(req.body?.fields) ? req.body.fields.length : 0,
       sourceHash: hash,
+      consentText: CONSENT_TEXT,
     });
     revokeTicketsFor(doc.id);
 

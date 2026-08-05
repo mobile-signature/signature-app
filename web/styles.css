@@ -201,6 +201,24 @@ button.block { width: 100%; }
 .doc .title { font-weight: 600; font-size: 15px; }
 .doc .meta { font-size: 12px; color: var(--muted); }
 
+/* Named and colored as destructive up front, next to the title it deletes,
+   since it is the one action in the app with no undo. */
+.doc .del-link {
+  flex: none;
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.doc .del-link:hover:not(:disabled),
+.doc .del-link:focus-visible { opacity: 0.8; }
+.doc .del-link:disabled { opacity: 0.5; cursor: default; }
+
 .pill {
   font-size: 11px;
   font-weight: 700;

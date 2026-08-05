@@ -510,7 +510,11 @@ async function refreshList({ userInitiated = false } = {}) {
       .map((d) => `
         <div class="doc">
           <div style="flex:1;min-width:0">
-            <div class="title">${escapeHtml(d.title)}</div>
+            <div class="title">${escapeHtml(d.title)}
+              <button class="del-link" data-del="${d.id}" data-title="${escapeHtml(d.title)}"
+                      data-signed="${d.status === 'signed' ? '1' : ''}"
+                      aria-label="Delete ${escapeHtml(d.title)}">Remove</button>
+            </div>
             <div class="meta">${escapeHtml(d.signerName || 'No recipient')} ·
               ${new Date(d.createdAt).toLocaleDateString()} · ${d.pageCount}p</div>
           </div>
@@ -640,13 +644,47 @@ async function downloadDocument(id, title) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-$('list').addEventListener('click', async (e) => {
-  const id = e.target.dataset?.dl;
-  if (!id) return;
+/**
+ * Deleting is the only action in the app with no undo: the record, the audit
+ * trail and the PDF all go, from the durable store as well as this machine.
+ *
+ * So the warning names the document being destroyed rather than asking "are
+ * you sure?", and says more when that document is a signed agreement than
+ * when it is an unsigned draft — those two carry very different consequences,
+ * and the button that triggers them looks identical.
+ */
+async function deleteDocument(btn) {
+  const { del: id, title, signed } = btn.dataset;
+  const warning = signed
+    ? `Delete the SIGNED document "${title}"?\n\n` +
+      'The signed PDF and its audit trail are destroyed permanently. Unless you ' +
+      'have saved a copy, nothing will be left to show it was ever signed.'
+    : `Delete "${title}"?\n\nThe document is destroyed permanently and its link stops working.`;
+  if (!confirm(warning)) return;
+
+  btn.disabled = true;
   try {
-    await downloadDocument(id, e.target.dataset.title);
+    await api(`/api/documents/${id}`, { method: 'DELETE' });
+    flash(`Deleted “${title}”.`, 'ok');
+    await refreshList();
   } catch (err) {
+    btn.disabled = false; // the row is still there, so the button must work again
     flash(err.message);
+  }
+}
+
+$('list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+
+  if (btn.dataset.del) return deleteDocument(btn);
+
+  if (btn.dataset.dl) {
+    try {
+      await downloadDocument(btn.dataset.dl, btn.dataset.title);
+    } catch (err) {
+      flash(err.message);
+    }
   }
 });
 

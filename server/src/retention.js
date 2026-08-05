@@ -53,6 +53,19 @@ function filesOf(doc) {
 }
 
 /**
+ * Removes every file a document owns — original, signed copy and preview —
+ * from local disk and from the durable store.
+ *
+ * Exported because a manual delete has to remove exactly the same set as a
+ * retention purge. Keeping the definition of "the files of a document" in one
+ * place means a fourth kind of file, added later, cannot be remembered in one
+ * path and forgotten in the other.
+ */
+export function purgeDocumentFiles(doc) {
+  filesOf(doc).forEach(removeFileQuietly);
+}
+
+/**
  * @param {(workspace: string) => boolean} isExpired
  * @returns {{ purged: number, keptSigned: number }}
  */
@@ -75,7 +88,7 @@ export function sweep(isExpired) {
     doomed.push(doc);
   }
 
-  for (const doc of doomed) filesOf(doc).forEach(removeFileQuietly);
+  for (const doc of doomed) purgeDocumentFiles(doc);
   const purged = db.deleteDocuments(doomed.map((d) => d.id));
 
   if (purged) {

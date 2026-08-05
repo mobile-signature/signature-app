@@ -157,6 +157,7 @@ function stampAuditFooter(page, font, audit) {
     `Signed electronically on ${audit.signedAt}`,
     `Signer: ${toWinAnsi(audit.signerName) || 'n/a'}  |  IP: ${audit.ip || 'n/a'}`,
     `Document ID: ${audit.documentId}  |  Integrity hash: ${audit.hash}`,
+    `Consent given: "${toWinAnsi(audit.consentText) || 'n/a'}"`,
   ];
   lines.forEach((line, i) => {
     page.drawText(line.slice(0, 140), {
