@@ -6,12 +6,6 @@ pdfjs.GlobalWorkerOptions.workerSrc =
 const $ = (id) => document.getElementById(id);
 const token = location.pathname.split('/').pop();
 
-// Created once and reused so the very first play() call, which browsers only
-// allow while a user gesture is still "active", doesn't also pay the cost of
-// fetching/decoding the file.
-const notificationSound = new Audio('/notification.mp3');
-notificationSound.preload = 'auto';
-
 let ticket = null;
 let doc = null;
 let activeTool = null;
@@ -655,16 +649,6 @@ $('fullName').addEventListener('input', () => {
 });
 
 $('finishGo').addEventListener('click', async () => {
-  // Play-then-immediately-pause, still inside this click's user gesture, so
-  // iOS Safari treats the element as "unlocked" and allows the real play()
-  // below to go through even though it happens after the await further down.
-  // The pause happens synchronously (not inside the play() promise's .then),
-  // otherwise it can resolve after the real play() below has already started
-  // and silently cut that one off instead.
-  notificationSound.currentTime = 0;
-  notificationSound.play().catch(() => {});
-  notificationSound.pause();
-
   const signerName = $('fullName').value.trim();
   if (!signerName) {
     $('fullName').focus();
@@ -711,8 +695,6 @@ $('finishGo').addEventListener('click', async () => {
     show($('viewer'), false);
     $('doneSub').textContent = `Signed ${new Date(data.signedAt).toLocaleString()}. The sender has been notified.`;
     show($('done'), true);
-    notificationSound.currentTime = 0;
-    notificationSound.play().catch(() => {});
   } catch (e2) {
     err(e2.message);
   } finally {

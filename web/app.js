@@ -14,6 +14,19 @@ function flash(text, kind = 'err') {
   if (text) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// Alerts the sender when a background poll finds a document newly signed.
+// Playing it needs an earlier user gesture on this page — the poll timer that
+// actually notices the signature is not one — so the first tap or click
+// anywhere primes it (play immediately paused, synchronously, so it makes no
+// sound) and every later play() then goes through on both desktop and phone.
+const notificationSound = new Audio('/notification.mp3');
+notificationSound.preload = 'auto';
+document.addEventListener('click', () => {
+  notificationSound.play().catch(() => {});
+  notificationSound.pause();
+  notificationSound.currentTime = 0;
+}, { once: true });
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -546,6 +559,9 @@ function toastStack() {
 }
 
 async function announceSigned(doc) {
+  notificationSound.currentTime = 0;
+  notificationSound.play().catch(() => {});
+
   const box = document.createElement('div');
   box.className = 'signed-toast';
   const heading = `<b>✓ Signed</b><br />${escapeHtml(doc.title)}` +
