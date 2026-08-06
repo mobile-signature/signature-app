@@ -80,6 +80,11 @@ app.get('/s/:token', (req, res) => {
     `<meta property="og:url" content="${escapeAttr(`${PUBLIC_URL}/s/${req.params.token}`)}" />`,
     `<meta property="og:site_name" content="SAKA" />`,
     `<meta property="og:image" content="${escapeAttr(image)}" />`,
+    // secure_url and type are what stricter parsers look for before they will
+    // render a thumbnail at all; og:image alone is enough for some clients and
+    // silently not enough for others.
+    `<meta property="og:image:secure_url" content="${escapeAttr(image)}" />`,
+    `<meta property="og:image:type" content="${hasRealPreview && doc.previewExt === 'jpg' ? 'image/jpeg' : 'image/png'}" />`,
     `<meta property="og:image:width" content="${imageWidth}" />`,
     `<meta property="og:image:height" content="${imageHeight}" />`,
     `<meta property="og:image:alt" content="SAKA" />`,
@@ -93,7 +98,12 @@ app.get('/s/:token', (req, res) => {
     .replace('<title>Sign document</title>', `<title>${escapeAttr(title)}</title>\n  ${meta}`);
 
   res.type('html');
-  res.setHeader('Cache-Control', 'no-store');
+  // Chat apps keep their own preview cache, and a `no-store` response is one
+  // they are entitled to refuse to store — which shows up as a link that
+  // previews as nothing but the bare domain. A short public lifetime is enough
+  // for them to hold onto the card while still bounding how long a stale title
+  // or status (including one that has since been revoked) can be shown.
+  res.setHeader('Cache-Control', 'public, max-age=300');
   res.send(html);
 });
 
