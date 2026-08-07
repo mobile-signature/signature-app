@@ -360,6 +360,30 @@ $('cameraBtn').addEventListener('click', () => {
   }
 });
 
+/**
+ * Chrome fills the access code with a stored credential and ignores the
+ * field's autocomplete="off" while doing it, so the attribute alone cannot be
+ * relied on. The code is picked fresh per document, so anything already in the
+ * box on arrival is wrong by definition and safe to wipe — but only until the
+ * sender types, so this can never swallow a real keystroke. Autofill can land
+ * before or after load, hence clearing at both points and once more after.
+ */
+{
+  const field = $('accessCode');
+  // Keyed on real typing rather than `input`, because autofill raises `input`
+  // too — listening for that would let the very thing being guarded against
+  // mark the field as the sender's own work.
+  let typedIn = false;
+  field.addEventListener('keydown', () => { typedIn = true; });
+  field.addEventListener('paste', () => { typedIn = true; });
+
+  const clearIfAutofilled = () => { if (!typedIn && field.value) field.value = ''; };
+  clearIfAutofilled();
+  window.addEventListener('load', clearIfAutofilled);
+  window.addEventListener('pageshow', clearIfAutofilled); // back/forward restore
+  setTimeout(clearIfAutofilled, 500);
+}
+
 $('send').addEventListener('click', async () => {
   if (!picked) return flash('Choose a PDF, photo or screenshot to send.');
 
