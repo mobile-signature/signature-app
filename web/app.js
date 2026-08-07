@@ -54,6 +54,9 @@ function render() {
   show($('signOut'), activated);
   show($('adminLink'), activated && isAdmin);
   if (activated) {
+    // The send card has just become visible, which is the moment Chrome fills
+    // the access code — so this is the only useful place to undo it.
+    guardAccessCode();
     refreshList();
     startPolling();
   } else {
@@ -363,26 +366,42 @@ $('cameraBtn').addEventListener('click', () => {
 /**
  * Chrome fills the access code with a stored credential and ignores the
  * field's autocomplete="off" while doing it, so the attribute alone cannot be
- * relied on. The code is picked fresh per document, so anything already in the
- * box on arrival is wrong by definition and safe to wipe — but only until the
- * sender types, so this can never swallow a real keystroke. Autofill can land
- * before or after load, hence clearing at both points and once more after.
+ * relied on. The code is picked fresh per document, so anything sitting in the
+ * box the sender did not type is wrong by definition and safe to wipe.
+ *
+ * The timing is the whole difficulty. Chrome fills the field when it becomes
+ * visible, and this one starts hidden — it is revealed only once the activation
+ * check comes back — so a clear at page load runs before the fill it is meant
+ * to undo. Hence sweeping across a window after each reveal instead.
  */
-{
-  const field = $('accessCode');
-  // Keyed on real typing rather than `input`, because autofill raises `input`
-  // too — listening for that would let the very thing being guarded against
-  // mark the field as the sender's own work.
-  let typedIn = false;
-  field.addEventListener('keydown', () => { typedIn = true; });
-  field.addEventListener('paste', () => { typedIn = true; });
+// Keyed on real typing rather than `input`, because autofill raises `input` too
+// — listening for that would let the very thing being guarded against mark the
+// field as the sender's own work.
+let accessCodeTyped = false;
+$('accessCode').addEventListener('keydown', () => { accessCodeTyped = true; });
+$('accessCode').addEventListener('paste', () => { accessCodeTyped = true; });
 
-  const clearIfAutofilled = () => { if (!typedIn && field.value) field.value = ''; };
-  clearIfAutofilled();
-  window.addEventListener('load', clearIfAutofilled);
-  window.addEventListener('pageshow', clearIfAutofilled); // back/forward restore
-  setTimeout(clearIfAutofilled, 500);
+// Chrome fires no autofill event, but styles.css starts a no-op animation on
+// :-webkit-autofill, and that does fire one — the only signal that catches a
+// fill whenever it happens rather than whenever it was guessed at.
+$('accessCode').addEventListener('animationstart', (e) => {
+  if (e.animationName === 'autofill-detected') clearAccessCodeAutofill();
+});
+
+function clearAccessCodeAutofill() {
+  const field = $('accessCode');
+  if (!accessCodeTyped && field.value) field.value = '';
 }
+
+function guardAccessCode() {
+  // Spread out because the fill can land a beat after the reveal, and there is
+  // no event that fires when Chrome does it.
+  for (const delay of [0, 50, 150, 400, 800, 1500]) {
+    setTimeout(clearAccessCodeAutofill, delay);
+  }
+}
+
+window.addEventListener('pageshow', guardAccessCode); // back/forward restore
 
 $('send').addEventListener('click', async () => {
   if (!picked) return flash('Choose a PDF, photo or screenshot to send.');
