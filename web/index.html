@@ -96,7 +96,12 @@
       <input id="signerEmail" type="email" placeholder="jane@example.com" autocomplete="off" />
 
       <label for="accessCode">Access code (optional)</label>
+      <!-- The code is chosen fresh per document, so anything a browser or
+           password manager remembers here is wrong by definition: autofill
+           was quietly dropping a saved credential into the field. The data-*
+           attributes are the opt-outs the common password managers honour. -->
       <input id="accessCode" type="tel" inputmode="numeric" maxlength="10"
+             autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore
              placeholder="e.g. 4821 — share it separately" />
 
       <button class="block" id="send" style="margin-top:16px">Upload &amp; create signing link</button>
