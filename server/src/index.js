@@ -64,8 +64,10 @@ app.get('/s/:token', (req, res) => {
   // and a genuine PDF upload keeps the plain SAKA logo — real rendering of an
   // arbitrary PDF's first page is a separate, heavier piece of work.
   const hasRealPreview = known && doc.previewExt && doc.previewWidth && doc.previewHeight;
+  // Ends in a real image extension on purpose: some chat apps skip an og:image
+  // whose URL does not look like a file, no matter what Content-Type it serves.
   const image = hasRealPreview
-    ? `${PUBLIC_URL}/api/sign/${req.params.token}/preview`
+    ? `${PUBLIC_URL}/api/sign/${req.params.token}/preview.${doc.previewExt}`
     : `${PUBLIC_URL}/saka-preview.png`;
   // Real content is worth showing at a readable size (a large banner); the
   // brand-only fallback stays a small square next to the title, as designed.

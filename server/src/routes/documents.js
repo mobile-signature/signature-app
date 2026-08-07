@@ -705,7 +705,14 @@ router.get('/sign/:token/file', async (req, res) => {
  * respects revocation, matching the title-hiding rule on the /s/:token page:
  * a revoked or unknown link shows nothing about what it used to contain.
  */
-router.get('/sign/:token/preview', async (req, res) => {
+// The .png/.jpg spellings exist because some chat apps will not treat a URL as
+// an image unless it ends in an image extension, whatever Content-Type says.
+// The bare path stays for links already shared before the suffixed one existed.
+router.get([
+  '/sign/:token/preview',
+  '/sign/:token/preview.png',
+  '/sign/:token/preview.jpg',
+], async (req, res) => {
   const doc = db.getDocumentByToken(req.params.token);
   if (!doc || doc.status === 'revoked' || !doc.previewExt) return res.sendStatus(404);
 
