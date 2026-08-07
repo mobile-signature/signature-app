@@ -374,31 +374,51 @@ $('cameraBtn').addEventListener('click', () => {
  * check comes back — so a clear at page load runs before the fill it is meant
  * to undo. Hence sweeping across a window after each reveal instead.
  */
-// Keyed on real typing rather than `input`, because autofill raises `input` too
-// — listening for that would let the very thing being guarded against mark the
-// field as the sender's own work.
+// Autofill raises `input` as well, so that alone cannot separate the sender's
+// work from a filler's — but a fill happens to a field nobody is in, while
+// typing happens to the focused one. Requiring focus tells the two apart and
+// still counts soft-keyboard input on phones, which does not always reach
+// keydown; missing that would silently drop a code the sender really typed.
 let accessCodeTyped = false;
+$('accessCode').addEventListener('input', (e) => {
+  if (document.activeElement === e.target) accessCodeTyped = true;
+});
 $('accessCode').addEventListener('keydown', () => { accessCodeTyped = true; });
 $('accessCode').addEventListener('paste', () => { accessCodeTyped = true; });
 
-// Chrome fires no autofill event, but styles.css starts a no-op animation on
-// :-webkit-autofill, and that does fire one — the only signal that catches a
-// fill whenever it happens rather than whenever it was guessed at.
+// Chrome's own autofill raises no event, but styles.css starts a no-op
+// animation on :-webkit-autofill, and that does fire one.
 $('accessCode').addEventListener('animationstart', (e) => {
   if (e.animationName === 'autofill-detected') clearAccessCodeAutofill();
 });
+
+// A password-manager extension fills by script instead: no :-webkit-autofill,
+// no animation, no event of any kind, and at a moment of its own choosing. So
+// the field is also emptied at every point the sender could be about to look
+// at it or type into it, rather than waiting to be told a fill happened.
+$('accessCode').addEventListener('focus', clearAccessCodeAutofill);
+for (const id of ['title', 'signerName', 'signerEmail']) {
+  $(id).addEventListener('blur', clearAccessCodeAutofill);
+}
 
 function clearAccessCodeAutofill() {
   const field = $('accessCode');
   if (!accessCodeTyped && field.value) field.value = '';
 }
 
+let accessCodeSweep = null;
+
 function guardAccessCode() {
-  // Spread out because the fill can land a beat after the reveal, and there is
-  // no event that fires when Chrome does it.
-  for (const delay of [0, 50, 150, 400, 800, 1500]) {
-    setTimeout(clearAccessCodeAutofill, delay);
-  }
+  clearInterval(accessCodeSweep); // a re-render must not stack sweeps
+  clearAccessCodeAutofill();
+  // Nothing announces a scripted fill, so the only way to catch one is to keep
+  // looking. Bounded: it stops the moment the sender types, and gives up a few
+  // seconds in, by which point any filler has long since run.
+  const startedAt = Date.now();
+  accessCodeSweep = setInterval(() => {
+    clearAccessCodeAutofill();
+    if (accessCodeTyped || Date.now() - startedAt > 8000) clearInterval(accessCodeSweep);
+  }, 200);
 }
 
 window.addEventListener('pageshow', guardAccessCode); // back/forward restore
@@ -423,7 +443,11 @@ $('send').addEventListener('click', async () => {
   form.append('title', title);
   form.append('signerName', signerName);
   form.append('signerEmail', $('signerEmail').value.trim());
-  form.append('accessCode', $('accessCode').value.trim());
+  // Only a code the sender actually entered is sent. If some filler slipped a
+  // stored credential in and the clearing above missed it, the document goes
+  // out with no code at all rather than one the sender never chose and cannot
+  // pass on to the recipient.
+  form.append('accessCode', accessCodeTyped ? $('accessCode').value.trim() : '');
 
   $('send').disabled = true;
   $('send').textContent = 'Uploading…';
@@ -453,6 +477,10 @@ $('newDoc').addEventListener('click', () => {
   preview('');
   show($('resultCard'), false);
   show($('sendCard'), true);
+  // The next document needs its own code, so the previous one having been
+  // typed must not leave the guard switched off for this one.
+  accessCodeTyped = false;
+  guardAccessCode();
 });
 
 // A link built from localhost only resolves on the machine that made it. Sent
