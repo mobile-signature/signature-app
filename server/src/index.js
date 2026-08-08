@@ -94,6 +94,14 @@ app.get('/s/:token', (req, res) => {
     `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
     description ? `<meta name="twitter:description" content="${escapeAttr(description)}" />` : '',
     `<meta name="twitter:image" content="${escapeAttr(image)}" />`,
+    // Older, non-Open-Graph ways of naming the same picture and text. Preview
+    // readers embedded in desktop chat clients are not always the browser
+    // engine the same service uses on the web, and some of them look only for
+    // these — ignoring them costs the card its image. Purely additive: a
+    // reader that understands og: sees exactly what it saw before.
+    description ? `<meta name="description" content="${escapeAttr(description)}" />` : '',
+    `<meta itemprop="image" content="${escapeAttr(image)}" />`,
+    `<link rel="image_src" href="${escapeAttr(image)}" />`,
   ].filter(Boolean).join('\n  ');
 
   const html = SIGN_TEMPLATE
