@@ -27,6 +27,8 @@
          bursting out of the header at its natural 459x258. -->
     <img src="/saka-logo.png" alt="SAKA" class="brand" width="74" height="42" />
     <div class="bar-side bar-actions">
+      <button id="destLink" class="hidden"
+              style="padding:8px 10px;font-size:13px;color:var(--muted);background:none;border:0;cursor:pointer">Destination</button>
       <a href="/admin" id="adminLink" class="hidden"
          style="padding:8px 10px;font-size:13px;color:var(--muted);text-decoration:none">Licences</a>
       <button class="ghost" id="signOut" style="padding:8px 12px;font-size:13px">Deactivate</button>
@@ -135,6 +137,30 @@
       <div id="list"></div>
     </section>
   </main>
+
+  <!-- Where signed documents are saved. The folder is picked through the
+       system dialog rather than typed: a page is only ever given access to a
+       folder its user chose, and is handed a handle rather than a path. -->
+  <div id="destSheet" class="sheet hidden">
+    <div>
+      <h2>Download destination</h2>
+      <p>
+        Signed documents are saved here automatically as they come back. This
+        is remembered for your licence key, so it only needs choosing once.
+      </p>
+      <div id="destMsg"></div>
+      <label for="destPath">Saving to</label>
+      <input id="destPath" type="text" readonly class="dest-path" />
+      <p class="dest-note" id="destNote"></p>
+      <div class="row" style="margin-top:12px">
+        <button class="secondary" id="destChoose">Choose folder…</button>
+        <button class="secondary" id="destReset">Use Downloads</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="destClose">Done</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Delete confirmation, used instead of the browser's confirm() so the
        dialog can carry the app's own name and styling. -->

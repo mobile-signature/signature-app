@@ -517,3 +517,13 @@ button.block { width: 100%; }
   animation-name: autofill-detected;
   animation-duration: 1ms;
 }
+
+/* Download destination dialog. The path box is read-only on purpose: the
+   browser hands back a folder handle, never a path that could be typed in. */
+.dest-path {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: var(--line);
+  cursor: default;
+}
+.dest-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }

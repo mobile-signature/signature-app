@@ -1,9 +1,26 @@
+import {
+  destinationSupported, loadDestination, chooseDestination,
+  clearDestination, saveToDestination,
+} from '/destination.js';
+
 const $ = (id) => document.getElementById(id);
 
 // The licence key is exchanged once for an httpOnly activation cookie and is
 // never kept in the browser. `activated` only mirrors what the server reports.
 let activated = false;
 let isAdmin = false;
+
+// Which licence this device is running under, so the saved folder belongs to
+// this user rather than to whoever last used the browser, and the folder they
+// chose. Null means signed documents go to Downloads, as they always have.
+let licenceId = null;
+let destHandle = null;
+
+/** Reads the licence out of an activation reply and picks up its folder. */
+async function adoptLicence(state) {
+  licenceId = state.licence || (state.admin ? 'admin' : null);
+  destHandle = await loadDestination(licenceId);
+}
 
 function show(el, on) {
   el.classList.toggle('hidden', !on);
@@ -53,6 +70,9 @@ function render() {
   show($('listCard'), activated);
   show($('signOut'), activated);
   show($('adminLink'), activated && isAdmin);
+  // Only where the browser can actually be given a folder — elsewhere the
+  // button would promise something it cannot deliver.
+  show($('destLink'), activated && destinationSupported());
   if (activated) {
     // The send card has just become visible, which is the moment Chrome fills
     // the access code — so this is the only useful place to undo it.
@@ -89,6 +109,7 @@ async function activate() {
     $('apiKey').value = ''; // never leave the key sitting in the field
     activated = true;
     isAdmin = Boolean(out.admin);
+    await adoptLicence(out);
     flash('');
     render();
   } catch (err) {
@@ -174,6 +195,10 @@ $('signOut').addEventListener('click', async () => {
   localStorage.removeItem('ms.apiKey'); // clear the pre-licensing leftover
   activated = false;
   isAdmin = false;
+  // Forget which folder is in play, but leave it stored: reactivating with the
+  // same key should find the choice still made.
+  licenceId = null;
+  destHandle = null;
   flash('');
   render();
 });
@@ -722,14 +747,62 @@ async function downloadDocument(id, title) {
   const res = await fetch(`/api/documents/${id}/download`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error('Could not download that document.');
   const blob = await res.blob();
+  const safe = String(title || '').trim().replace(/[^\w.\- ]+/g, '_');
+  const filename = `${safe || id}.pdf`;
+
+  // A folder of their own, when one is set and still writable. Everything
+  // else — no folder chosen, permission withdrawn, drive disconnected — falls
+  // through to the ordinary download below, unchanged from before.
+  if (destHandle && await saveToDestination(destHandle, blob, filename)) return;
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const safe = String(title || '').trim().replace(/[^\w.\- ]+/g, '_');
-  a.download = `${safe || id}.pdf`;
+  a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+
+/* -------------------------------------------------- download destination */
+
+function renderDestination() {
+  const chosen = Boolean(destHandle);
+  $('destPath').value = chosen ? destHandle.name : 'Downloads folder (default)';
+  $('destNote').textContent = chosen
+    ? 'Only the folder name can be shown — browsers do not reveal the full path '
+      + 'of a folder you picked. Signed documents go here as they arrive.'
+    : 'Signed documents go to wherever this browser normally saves downloads.';
+  $('destReset').disabled = !chosen;
+}
+
+function openDestination() {
+  $('destMsg').innerHTML = '';
+  renderDestination();
+  show($('destSheet'), true);
+}
+
+$('destLink').addEventListener('click', openDestination);
+$('destClose').addEventListener('click', () => show($('destSheet'), false));
+
+$('destChoose').addEventListener('click', async () => {
+  $('destMsg').innerHTML = '';
+  try {
+    destHandle = await chooseDestination(licenceId);
+    renderDestination();
+    $('destMsg').innerHTML = '<div class="msg ok">Saved. Signed documents will go here.</div>';
+  } catch (err) {
+    // Closing the picker is a decision, not a failure worth reporting.
+    if (err && err.name === 'AbortError') return;
+    $('destMsg').innerHTML = `<div class="msg err">${escapeHtml(err.message)}</div>`;
+  }
+});
+
+$('destReset').addEventListener('click', async () => {
+  await clearDestination(licenceId);
+  destHandle = null;
+  renderDestination();
+  $('destMsg').innerHTML = '<div class="msg ok">Back to the Downloads folder.</div>';
+});
 
 /**
  * Custom stand-in for window.confirm(), so the dialog can carry the app's own
@@ -826,6 +899,7 @@ if ('serviceWorker' in navigator) {
     const state = await api('/api/activation');
     activated = Boolean(state.activated);
     isAdmin = Boolean(state.admin);
+    if (activated) await adoptLicence(state);
     if (!activated && state.reason) flash(state.reason);
   } catch {
     activated = false;
@@ -844,6 +918,7 @@ if ('serviceWorker' in navigator) {
         });
         activated = true;
         isAdmin = Boolean(out.admin);
+        await adoptLicence(out);
         flash('');
       } catch { /* stale key — fall through to the licence screen */ }
       localStorage.removeItem('ms.apiKey');
