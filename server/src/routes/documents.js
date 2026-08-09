@@ -9,7 +9,7 @@ import * as db from '../db.js';
 import { mirrorFile, ensureLocal } from '../store/files.js';
 import { stampPdf, pageCountOf } from '../pdf.js';
 import { imageToPdf, sniffImageType } from '../convert.js';
-import { renderFirstPageThumbnail, renderImageThumbnail } from '../thumbnail.js';
+import { renderFirstPageToPng } from '../thumbnail.js';
 import { generateLicense, inspectLicense, envRevoked, normalize, SERIAL_LENGTH } from '../license.js';
 import {
   COOKIE_NAME, readCookie, readToken, setActivationCookie, clearActivationCookie, describeDevice,
@@ -465,13 +465,11 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
         // document just keeps the plain SAKA logo, exactly like before this
         // existed.
         try {
-          const rendered = await renderFirstPageThumbnail(raw);
-          previewExt = rendered.ext;
+          const rendered = await renderFirstPageToPng(raw);
+          previewExt = 'png';
           previewWidth = rendered.width;
           previewHeight = rendered.height;
-          await fsp.writeFile(
-            path.join(UPLOAD_DIR, `${id}-preview.${rendered.ext}`), rendered.bytes,
-          );
+          await fsp.writeFile(path.join(UPLOAD_DIR, `${id}-preview.png`), rendered.bytes);
         } catch (err) {
           console.warn(`[preview] page-1 render skipped for ${id}: ${err.message}`);
         }
@@ -481,25 +479,14 @@ router.post('/documents', requireApiKey, upload.single('file'), async (req, res,
         sourceKind = 'image';
         const converted = await imageToPdf(raw);
         await fsp.writeFile(stored, converted.bytes);
-        // The upload's own bytes show the same page, but at whatever size the
-        // camera produced — which can be megabytes, and a chat app fetching a
-        // preview gives up long before that arrives. Shrunk to preview size,
-        // falling back to the original bytes if that is not possible, which is
-        // what this always used.
+        // The page inside that PDF is these exact bytes at full size with no
+        // crop (imageToPdf sizes the page to the image's own aspect ratio), so
+        // they double as a real link-preview thumbnail at zero extra cost —
+        // no PDF rendering needed for this case.
+        previewExt = kind === 'image/jpeg' ? 'jpg' : 'png';
         previewWidth = converted.width;
         previewHeight = converted.height;
-        previewExt = kind === 'image/jpeg' ? 'jpg' : 'png';
-        let previewBytes = raw;
-        try {
-          const small = await renderImageThumbnail(raw);
-          previewExt = small.ext;
-          previewWidth = small.width;
-          previewHeight = small.height;
-          previewBytes = small.bytes;
-        } catch (err) {
-          console.warn(`[preview] image shrink skipped for ${id}: ${err.message}`);
-        }
-        await fsp.writeFile(path.join(UPLOAD_DIR, `${id}-preview.${previewExt}`), previewBytes);
+        await fsp.writeFile(path.join(UPLOAD_DIR, `${id}-preview.${previewExt}`), raw);
       } else {
         return res.status(400).json({
           error: 'That file is not a PDF, JPEG or PNG. If it is a HEIC photo, ' +

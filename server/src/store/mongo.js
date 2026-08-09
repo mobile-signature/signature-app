@@ -94,34 +94,6 @@ let saveChain = Promise.resolve();
 let pendingSnapshot = null;
 
 /**
- * Rows deleted since the last flush, per collection.
- *
- * Removal used to be inferred rather than recorded: whatever was absent from
- * the in-memory snapshot got deleted. That reads correctly only while exactly
- * one process owns this database. Two instances each hold their own memory, so
- * each sees the other's records as absent, and every save wipes everything the
- * other one wrote — silent, total loss of documents and their audit trail,
- * from nothing more than both being briefly alive at once.
- *
- * Recording deletions makes removal follow something that actually happened.
- * It is also less work: no full-collection delete on every single save.
- *
- * CONSTRAINT for anything added later: removing rows from the in-memory state
- * in db.js is no longer enough to remove them here. Any new code path that
- * drops a record must call noteDeleted() with its ids, or the record will
- * linger in the database and come back at the next restart.
- */
-const pendingDeletes = Object.fromEntries(COLLECTIONS.map((name) => [name, new Set()]));
-
-/** Records rows to remove on the next flush. Ids are keys, per KEY_OF above. */
-export function noteDeleted(name, ids) {
-  if (!URI) return;
-  const doomed = pendingDeletes[name];
-  if (!doomed) throw new Error(`[mongo] noteDeleted called for unknown collection "${name}"`);
-  for (const id of ids) doomed.add(String(id));
-}
-
-/**
  * Mirrors the in-memory state into MongoDB.
  *
  * Called after a change has already been applied in memory, so the caller
@@ -137,23 +109,8 @@ export function saveAll(snapshot) {
     pendingSnapshot = null;
     try {
       for (const name of COLLECTIONS) {
-        // Deletions first, so an id dropped and re-created within the same
-        // window ends up present: the upsert below puts it back.
-        const doomed = pendingDeletes[name];
-        if (doomed.size) {
-          const ids = [...doomed];
-          doomed.clear();
-          try {
-            await database.collection(name).deleteMany({ _id: { $in: ids } });
-          } catch (err) {
-            // Put them back so the next save retries; dropping them here would
-            // leave a purged record to be reloaded at the next restart.
-            for (const id of ids) doomed.add(id);
-            throw err;
-          }
-        }
-
         const rows = snap[name] || [];
+        const ids = rows.map((r) => String(KEY_OF[name](r)));
         if (rows.length) {
           await database.collection(name).bulkWrite(
             rows.map((r) => ({
@@ -166,6 +123,9 @@ export function saveAll(snapshot) {
             { ordered: false },
           );
         }
+        // Whatever is no longer in memory has been deleted — a purged
+        // document must not come back to life on the next restart.
+        await database.collection(name).deleteMany({ _id: { $nin: ids } });
       }
     } catch (err) {
       console.error(`[mongo] save failed: ${err.message}`);

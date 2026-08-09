@@ -13,13 +13,6 @@ services:
     name: mobile-signature
     runtime: node
     plan: free
-    # Frankfurt, not the Oregon default: the senders and signers are in
-    # Lebanon, and a round trip to the US west coast is about 280ms against
-    # roughly 75ms here. That is the difference between a link preview being
-    # fetched before the sender presses send and not — a chat app builds the
-    # card from two requests, and on the far side of the world those two cost
-    # ~2s, which is longer than it is willing to wait.
-    region: frankfurt
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
@@ -27,15 +20,6 @@ services:
       # Generated once by Render and kept secret. This is your sender API key.
       - key: API_KEY
         generateValue: true
-      # Every licence key ever issued is signed with this, and a key whose
-      # signature no longer checks out cannot activate anything. Without it the
-      # signing falls back to API_KEY — which is generated per service, so
-      # moving to a new one would silently invalidate every licence in the
-      # field. Set explicitly, and carried across unchanged whenever the
-      # service moves. On an existing deployment its value must be that
-      # deployment's current API_KEY, or the keys already issued stop working.
-      - key: LICENSE_SECRET
-        sync: false
 
       # Must match the public URL Render assigns, e.g.
       # https://mobile-signature.onrender.com
