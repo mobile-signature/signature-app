@@ -612,6 +612,14 @@ $('waLink').addEventListener('click', () => {
   primeLinkPreview(url); // so the card it goes to fetch is already warm
   const title = lastDocTitle || 'Please sign this document';
   const message = `Please sign: ${title}\n${url}`;
+
+  // Also put it on the clipboard. A chat app looks up a preview when a link is
+  // typed or pasted; there is no guarantee it does the same for one handed to
+  // it pre-filled, and when it does not, no amount of waiting produces a card.
+  // Pasting over the message is then the way out, and it needs the text to
+  // still be somewhere.
+  navigator.clipboard?.writeText(message).catch(() => {});
+
   window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
 });
 
