@@ -209,7 +209,6 @@ $('signOut').addEventListener('click', async () => {
 
 let picked = null; // { blob, name, kind }
 let lastDocTitle = ''; // title of the most recently created link, for sharing
-let sharePreviewFile = null; // its first page, fetched ahead so sharing can attach it
 
 const MAX_IMAGE_EDGE = 2400; // plenty for signing; keeps uploads small
 
@@ -486,9 +485,6 @@ $('send').addEventListener('click', async () => {
     show($('resultCard'), true);
     warnIfLocalLink(doc.signUrl);
     loadQr(doc.signUrl);
-    // Drop the previous document's page before fetching this one's, so a slow
-    // or missing fetch cannot leave the last document attached to this link.
-    sharePreviewFile = null;
     primeLinkPreview(doc.signUrl);
     refreshList();
   } catch (err) {
@@ -505,7 +501,6 @@ $('newDoc').addEventListener('click', () => {
   }
   picked = null;
   preview('');
-  sharePreviewFile = null;
   show($('resultCard'), false);
   show($('sendCard'), true);
   // The next document needs its own code, so the previous one having been
@@ -590,21 +585,8 @@ function primeLinkPreview(url) {
       // No credentials, so this walks the same anonymous path a chat app does.
       const html = await (await fetch(url, { credentials: 'omit' })).text();
       const image = html.match(/property="og:image" content="([^"]+)"/);
-      if (!image) return;
-
-      const res = await fetch(image[1], { credentials: 'omit' });
-      if (!res.ok) return;
-      const blob = await res.blob();
-
-      // The brand logo stands in whenever a document has no thumbnail of its
-      // own. Attaching that would tell the recipient nothing.
-      if (/saka-preview\.png(?:$|\?)/i.test(image[1])) return;
-
-      const stem = String(lastDocTitle || '').trim().replace(/[^\w.\- ]+/g, '_') || 'document';
-      sharePreviewFile = new File(
-        [blob], `${stem}.${blob.type === 'image/jpeg' ? 'jpg' : 'png'}`, { type: blob.type },
-      );
-    } catch { /* best effort — sharing still works, just without the picture */ }
+      if (image) await fetch(image[1], { credentials: 'omit' });
+    } catch { /* best effort */ }
   })();
 }
 
@@ -618,19 +600,16 @@ $('shareLink').addEventListener('click', async () => {
   const text = `Please sign: ${title}`;
 
   // Sharing is user-initiated here: the OS sheet lets them pick the recipient.
+  //
+  // The link goes on its own, never with the page attached as a file. A chat
+  // app handed a file and text alongside it treats them as two things to send
+  // and posts two messages — the document arriving separately from the link it
+  // belongs to. One message carrying both is only possible as a preview card,
+  // which is the receiving app's to build; the warm-up above is what gives it
+  // the time to.
   if (navigator.share) {
     try {
-      const files = sharePreviewFile ? [sharePreviewFile] : [];
-      if (files.length && navigator.canShare && navigator.canShare({ files })) {
-        // Attaching the page itself means the recipient sees the document even
-        // when the receiving app sends before it has fetched a preview card.
-        // The link rides in the text rather than in `url`, because a target
-        // given files may keep only one of the two and the link is the half
-        // that cannot be lost.
-        await navigator.share({ files, text: `${text}\n${url}` });
-      } else {
-        await navigator.share({ title, text, url });
-      }
+      await navigator.share({ title, text, url });
     } catch { /* user dismissed the sheet */ }
   } else {
     window.location.href =
