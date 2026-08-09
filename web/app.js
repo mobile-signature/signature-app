@@ -590,6 +590,31 @@ function primeLinkPreview(url) {
   })();
 }
 
+/**
+ * Opens WhatsApp with the message already sitting in the compose box, instead
+ * of handing a finished one to whatever the system share sheet picks.
+ *
+ * This is the entire difference between the two WhatsApp clients. A chat app
+ * attaches a link's preview card at the moment of sending, and only if it has
+ * already fetched it. Handed a share, the desktop application opens on the
+ * conversation and sends at once — nothing has been fetched, so the link goes
+ * out bare. Handed a pre-filled compose box it behaves exactly as the web
+ * client does: the card loads while the sender is still picking who to send
+ * to, and travels as part of that one message rather than a second one.
+ *
+ * wa.me is WhatsApp's own entry point and resolves itself — the installed
+ * application where there is one, the web client otherwise — so this needs no
+ * guess about which is present.
+ */
+$('waLink').addEventListener('click', () => {
+  const url = $('linkOut').value;
+  if (!url) return;
+  primeLinkPreview(url); // so the card it goes to fetch is already warm
+  const title = lastDocTitle || 'Please sign this document';
+  const message = `Please sign: ${title}\n${url}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+});
+
 $('shareLink').addEventListener('click', async () => {
   const url = $('linkOut').value;
   // In case the link has sat here long enough for the CDN copy to lapse.

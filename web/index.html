@@ -121,6 +121,17 @@
         <button id="copyLink" class="secondary">Copy</button>
         <button id="shareLink">Share</button>
       </div>
+      <!-- Goes to WhatsApp directly rather than through the system share
+           sheet: a share arrives as a finished message and is sent before a
+           preview can be fetched, where a pre-filled compose box gives it the
+           time to load, so the document appears with the link. -->
+      <button class="block" id="waLink" style="margin-top:8px;background:#25d366">
+        Send on WhatsApp
+      </button>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
+        Opens WhatsApp with the message ready. Wait for the document preview to
+        appear under the link, then press send.
+      </p>
       <div id="linkQr" style="background:#fff;padding:12px;border-radius:12px;width:190px;margin:14px auto 0"></div>
       <p style="font-size:12px;color:var(--muted);text-align:center;margin:8px 0 0">
         Or let them scan this
