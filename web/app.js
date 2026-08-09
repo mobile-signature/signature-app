@@ -485,6 +485,7 @@ $('send').addEventListener('click', async () => {
     show($('resultCard'), true);
     warnIfLocalLink(doc.signUrl);
     loadQr(doc.signUrl);
+    primeLinkPreview(doc.signUrl);
     refreshList();
   } catch (err) {
     flash(err.message);
@@ -554,14 +555,91 @@ $('copyLink').addEventListener('click', async () => {
   setTimeout(() => ($('copyLink').textContent = 'Copy'), 1500);
 });
 
+/**
+ * Fetches a signing link's own preview once, from here, as soon as the link
+ * exists — and again just before it is shared.
+ *
+ * A chat app attaches the preview card at the moment the message is sent, and
+ * only if it has already fetched it. Its web client leaves the sender looking
+ * at a compose box, which is time enough for that fetch to finish. Its desktop
+ * application opens straight onto the conversation and sends at once, so a
+ * first fetch that has to wake a sleeping instance, restore the thumbnail from
+ * the database and cross the network does not finish in time, and the card is
+ * dropped — the link arrives bare.
+ *
+ * Making that first fetch here takes part of it off the critical path: by the
+ * time anything else asks, the instance is awake and the thumbnail has been
+ * restored from the database to local disk. Measured, that is worth a few
+ * hundred milliseconds. It is not a cure — the round trip itself remains, and
+ * the host does not cache these at its edge.
+ *
+ * The same fetch also keeps the picture, so sharing can attach it outright
+ * rather than trusting the other end to come and get it in time.
+ */
+function primeLinkPreview(url) {
+  if (!url || !/^https?:/i.test(url)) return;
+  // Deliberately not awaited: a share must stay inside the click that asked
+  // for it, and a warm-up is never worth delaying or interrupting anyone over.
+  (async () => {
+    try {
+      // No credentials, so this walks the same anonymous path a chat app does.
+      const html = await (await fetch(url, { credentials: 'omit' })).text();
+      const image = html.match(/property="og:image" content="([^"]+)"/);
+      if (image) await fetch(image[1], { credentials: 'omit' });
+    } catch { /* best effort */ }
+  })();
+}
+
+/**
+ * Opens WhatsApp with the message already sitting in the compose box, instead
+ * of handing a finished one to whatever the system share sheet picks.
+ *
+ * This is the entire difference between the two WhatsApp clients. A chat app
+ * attaches a link's preview card at the moment of sending, and only if it has
+ * already fetched it. Handed a share, the desktop application opens on the
+ * conversation and sends at once — nothing has been fetched, so the link goes
+ * out bare. Handed a pre-filled compose box it behaves exactly as the web
+ * client does: the card loads while the sender is still picking who to send
+ * to, and travels as part of that one message rather than a second one.
+ *
+ * wa.me is WhatsApp's own entry point and resolves itself — the installed
+ * application where there is one, the web client otherwise — so this needs no
+ * guess about which is present.
+ */
+$('waLink').addEventListener('click', () => {
+  const url = $('linkOut').value;
+  if (!url) return;
+  primeLinkPreview(url); // so the card it goes to fetch is already warm
+  const title = lastDocTitle || 'Please sign this document';
+  const message = `Please sign: ${title}\n${url}`;
+
+  // Also put it on the clipboard. A chat app looks up a preview when a link is
+  // typed or pasted; there is no guarantee it does the same for one handed to
+  // it pre-filled, and when it does not, no amount of waiting produces a card.
+  // Pasting over the message is then the way out, and it needs the text to
+  // still be somewhere.
+  navigator.clipboard?.writeText(message).catch(() => {});
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+});
+
 $('shareLink').addEventListener('click', async () => {
   const url = $('linkOut').value;
+  // In case the link has sat here long enough for the CDN copy to lapse.
+  primeLinkPreview(url);
   // The document's own title, so the share sheet and the resulting message say
   // what the document is rather than a generic phrase.
   const title = lastDocTitle || 'Please sign this document';
   const text = `Please sign: ${title}`;
 
   // Sharing is user-initiated here: the OS sheet lets them pick the recipient.
+  //
+  // The link goes on its own, never with the page attached as a file. A chat
+  // app handed a file and text alongside it treats them as two things to send
+  // and posts two messages — the document arriving separately from the link it
+  // belongs to. One message carrying both is only possible as a preview card,
+  // which is the receiving app's to build; the warm-up above is what gives it
+  // the time to.
   if (navigator.share) {
     try {
       await navigator.share({ title, text, url });
