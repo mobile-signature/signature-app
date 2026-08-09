@@ -698,9 +698,16 @@ $('shareLink').addEventListener('click', async () => {
     try {
       const files = sharePreviewFile ? [sharePreviewFile] : [];
       if (files.length && navigator.canShare && navigator.canShare({ files })) {
+        const caption = `${text}\n${url}`;
         // The link rides inside the text: a target given files may keep only
         // one of text and url, and the link is the half that cannot be lost.
-        await navigator.share({ files, text: `${text}\n${url}` });
+        //
+        // title carries the same words. A desktop share hands over several
+        // text fields and the receiving app chooses which becomes the picture's
+        // caption and which becomes a message of its own; offering the link in
+        // both means whichever it reaches for still has it. Where text is the
+        // one chosen, this changes nothing.
+        await navigator.share({ files, text: caption, title: caption });
       } else {
         await navigator.share({ title, text, url });
       }
