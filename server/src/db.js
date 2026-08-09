@@ -198,7 +198,10 @@ export function revokeSerial(serial, note = '') {
 export function unrevokeSerial(serial) {
   const before = db.revoked.length;
   db.revoked = db.revoked.filter((r) => r.serial !== serial);
-  if (db.revoked.length !== before) persist();
+  if (db.revoked.length !== before) {
+    mongo.noteDeleted('revoked', [serial]); // see the note above deleteDocuments
+    persist();
+  }
 }
 
 export function revokedSerials() {
@@ -239,16 +242,39 @@ export function allDocuments() {
   return [...db.documents];
 }
 
-/** Drops document records by id and returns how many were removed. */
+/**
+ * Drops document records by id and returns how many were removed.
+ *
+ * IMPORTANT, and true of every removal from here on: taking rows out of the
+ * in-memory state is not by itself enough to take them out of MongoDB. The
+ * mirror deletes what it is told was deleted, not whatever it fails to find in
+ * memory — that older rule quietly wiped a second instance's records, since
+ * one process cannot see what another is holding. So a removal has to say so,
+ * via mongo.noteDeleted(), before persist() runs.
+ */
 export function deleteDocuments(ids) {
   const doomed = new Set(ids);
   if (doomed.size === 0) return 0;
+
   const before = db.documents.length;
+  const eventsBefore = db.events.length;
+  // Captured before the filter: afterwards there is nothing left to read the
+  // ids off, and the mirror needs them by id.
+  const doomedEventIds = db.events.filter((e) => doomed.has(e.documentId)).map((e) => e.id);
+
   db.documents = db.documents.filter((d) => !doomed.has(d.id));
   // Their audit events go too — keeping an audit trail for a document that no
   // longer exists is just orphaned personal data.
   db.events = db.events.filter((e) => !doomed.has(e.documentId));
+
   const removed = before - db.documents.length;
-  if (removed) persist();
+  // Events are checked separately: a document can leave orphaned events behind
+  // from an earlier partial delete, and those still need clearing even in the
+  // run where no document itself matched.
+  if (removed || db.events.length !== eventsBefore) {
+    if (removed) mongo.noteDeleted('documents', [...doomed]);
+    if (doomedEventIds.length) mongo.noteDeleted('events', doomedEventIds);
+    persist();
+  }
   return removed;
 }
