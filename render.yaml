@@ -27,6 +27,15 @@ services:
       # Generated once by Render and kept secret. This is your sender API key.
       - key: API_KEY
         generateValue: true
+      # Every licence key ever issued is signed with this, and a key whose
+      # signature no longer checks out cannot activate anything. Without it the
+      # signing falls back to API_KEY — which is generated per service, so
+      # moving to a new one would silently invalidate every licence in the
+      # field. Set explicitly, and carried across unchanged whenever the
+      # service moves. On an existing deployment its value must be that
+      # deployment's current API_KEY, or the keys already issued stop working.
+      - key: LICENSE_SECRET
+        sync: false
 
       # Must match the public URL Render assigns, e.g.
       # https://mobile-signature.onrender.com
