@@ -209,6 +209,7 @@ $('signOut').addEventListener('click', async () => {
 
 let picked = null; // { blob, name, kind }
 let lastDocTitle = ''; // title of the most recently created link, for sharing
+let sharePreviewFile = null; // its first page, fetched ahead so sharing can attach it
 
 const MAX_IMAGE_EDGE = 2400; // plenty for signing; keeps uploads small
 
@@ -485,6 +486,9 @@ $('send').addEventListener('click', async () => {
     show($('resultCard'), true);
     warnIfLocalLink(doc.signUrl);
     loadQr(doc.signUrl);
+    // Drop the previous document's page before fetching this one's, so a slow
+    // or missing fetch cannot leave the last document attached to this link.
+    sharePreviewFile = null;
     primeLinkPreview(doc.signUrl);
     refreshList();
   } catch (err) {
@@ -501,6 +505,7 @@ $('newDoc').addEventListener('click', () => {
   }
   picked = null;
   preview('');
+  sharePreviewFile = null;
   show($('resultCard'), false);
   show($('sendCard'), true);
   // The next document needs its own code, so the previous one having been
@@ -571,9 +576,10 @@ $('copyLink').addEventListener('click', async () => {
  * time anything else asks, the instance is awake and the thumbnail has been
  * restored from the database to local disk. Measured, that is worth a few
  * hundred milliseconds. It is not a cure — the round trip itself remains, and
- * the host does not cache these at its edge — but it is the share's own
- * latency, and it is the part that can be paid in advance rather than while a
- * message is waiting to go. Nothing about the sharing itself changes.
+ * the host does not cache these at its edge.
+ *
+ * The same fetch also keeps the picture, so sharing can attach it outright
+ * rather than trusting the other end to come and get it in time.
  */
 function primeLinkPreview(url) {
   if (!url || !/^https?:/i.test(url)) return;
@@ -584,8 +590,21 @@ function primeLinkPreview(url) {
       // No credentials, so this walks the same anonymous path a chat app does.
       const html = await (await fetch(url, { credentials: 'omit' })).text();
       const image = html.match(/property="og:image" content="([^"]+)"/);
-      if (image) await fetch(image[1], { credentials: 'omit' });
-    } catch { /* best effort */ }
+      if (!image) return;
+
+      const res = await fetch(image[1], { credentials: 'omit' });
+      if (!res.ok) return;
+      const blob = await res.blob();
+
+      // The brand logo stands in whenever a document has no thumbnail of its
+      // own. Attaching that would tell the recipient nothing.
+      if (/saka-preview\.png(?:$|\?)/i.test(image[1])) return;
+
+      const stem = String(lastDocTitle || '').trim().replace(/[^\w.\- ]+/g, '_') || 'document';
+      sharePreviewFile = new File(
+        [blob], `${stem}.${blob.type === 'image/jpeg' ? 'jpg' : 'png'}`, { type: blob.type },
+      );
+    } catch { /* best effort — sharing still works, just without the picture */ }
   })();
 }
 
@@ -601,7 +620,17 @@ $('shareLink').addEventListener('click', async () => {
   // Sharing is user-initiated here: the OS sheet lets them pick the recipient.
   if (navigator.share) {
     try {
-      await navigator.share({ title, text, url });
+      const files = sharePreviewFile ? [sharePreviewFile] : [];
+      if (files.length && navigator.canShare && navigator.canShare({ files })) {
+        // Attaching the page itself means the recipient sees the document even
+        // when the receiving app sends before it has fetched a preview card.
+        // The link rides in the text rather than in `url`, because a target
+        // given files may keep only one of the two and the link is the half
+        // that cannot be lost.
+        await navigator.share({ files, text: `${text}\n${url}` });
+      } else {
+        await navigator.share({ title, text, url });
+      }
     } catch { /* user dismissed the sheet */ }
   } else {
     window.location.href =
