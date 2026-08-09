@@ -485,6 +485,7 @@ $('send').addEventListener('click', async () => {
     show($('resultCard'), true);
     warnIfLocalLink(doc.signUrl);
     loadQr(doc.signUrl);
+    primeLinkPreview(doc.signUrl);
     refreshList();
   } catch (err) {
     flash(err.message);
@@ -554,8 +555,44 @@ $('copyLink').addEventListener('click', async () => {
   setTimeout(() => ($('copyLink').textContent = 'Copy'), 1500);
 });
 
+/**
+ * Fetches a signing link's own preview once, from here, as soon as the link
+ * exists — and again just before it is shared.
+ *
+ * A chat app attaches the preview card at the moment the message is sent, and
+ * only if it has already fetched it. Its web client leaves the sender looking
+ * at a compose box, which is time enough for that fetch to finish. Its desktop
+ * application opens straight onto the conversation and sends at once, so a
+ * first fetch that has to wake a sleeping instance, restore the thumbnail from
+ * the database and cross the network does not finish in time, and the card is
+ * dropped — the link arrives bare.
+ *
+ * Making that first fetch here takes part of it off the critical path: by the
+ * time anything else asks, the instance is awake and the thumbnail has been
+ * restored from the database to local disk. Measured, that is worth a few
+ * hundred milliseconds. It is not a cure — the round trip itself remains, and
+ * the host does not cache these at its edge — but it is the share's own
+ * latency, and it is the part that can be paid in advance rather than while a
+ * message is waiting to go. Nothing about the sharing itself changes.
+ */
+function primeLinkPreview(url) {
+  if (!url || !/^https?:/i.test(url)) return;
+  // Deliberately not awaited: a share must stay inside the click that asked
+  // for it, and a warm-up is never worth delaying or interrupting anyone over.
+  (async () => {
+    try {
+      // No credentials, so this walks the same anonymous path a chat app does.
+      const html = await (await fetch(url, { credentials: 'omit' })).text();
+      const image = html.match(/property="og:image" content="([^"]+)"/);
+      if (image) await fetch(image[1], { credentials: 'omit' });
+    } catch { /* best effort */ }
+  })();
+}
+
 $('shareLink').addEventListener('click', async () => {
   const url = $('linkOut').value;
+  // In case the link has sat here long enough for the CDN copy to lapse.
+  primeLinkPreview(url);
   // The document's own title, so the share sheet and the resulting message say
   // what the document is rather than a generic phrase.
   const title = lastDocTitle || 'Please sign this document';
