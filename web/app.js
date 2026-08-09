@@ -639,24 +639,19 @@ $('waLink').addEventListener('click', () => {
 
   const text = encodeURIComponent(message);
 
-  if (isMobileDevice) {
-    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener');
-    return;
-  }
-
-  // Losing focus means something else took it — the application opened.
-  let handled = false;
-  const tookFocus = () => { handled = true; };
-  window.addEventListener('blur', tookFocus, { once: true });
-  document.addEventListener('visibilitychange', tookFocus, { once: true });
-
-  window.location.href = `whatsapp://send?text=${text}`;
-
-  setTimeout(() => {
-    window.removeEventListener('blur', tookFocus);
-    document.removeEventListener('visibilitychange', tookFocus);
-    if (!handled) window.open(`https://web.whatsapp.com/send?text=${text}`, '_blank', 'noopener');
-  }, 1500);
+  // Opened straight from the click, so the browser treats it as the sender's
+  // own navigation. The previous attempt handed the click to a whatsapp://
+  // protocol link and opened a window from a timer if that went unanswered —
+  // but a window opened on a timer is no longer part of any click, so the
+  // popup blocker took it, and an unregistered protocol does nothing visible.
+  // Between them the button could look simply dead.
+  window.open(
+    isMobileDevice
+      ? `https://wa.me/?text=${text}`
+      : `https://web.whatsapp.com/send?text=${text}`,
+    '_blank',
+    'noopener',
+  );
 });
 
 $('shareLink').addEventListener('click', async () => {

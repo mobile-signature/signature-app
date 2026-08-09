@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>Sign document</title>
   <meta name="theme-color" content="#3d7dfd" />
-  <meta name="robots" content="noindex, nofollow" />
+  <!-- No robots noindex here on purpose. It was defence against a page that
+       cannot be reached anyway: a signing URL carries an unguessable token, is
+       never linked from anywhere, and expires - so no crawler can discover it.
+       What the tag did instead was tell the crawlers that build chat link
+       previews not to read the page, and they obey: the card came out with no
+       title and no picture however the link was entered. -->
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
