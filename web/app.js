@@ -602,9 +602,16 @@ function primeLinkPreview(url) {
  * client does: the card loads while the sender is still picking who to send
  * to, and travels as part of that one message rather than a second one.
  *
- * wa.me is WhatsApp's own entry point and resolves itself — the installed
- * application where there is one, the web client otherwise — so this needs no
- * guess about which is present.
+ * On a computer this goes straight to the web client. wa.me is a redirector,
+ * not a destination: it answers with a page offering "Open app" or "Continue
+ * to WhatsApp Web", and taking the first hands the message to the desktop
+ * application — the one client that sends before it has fetched anything, so
+ * the card is lost. Naming web.whatsapp.com removes both the extra page and
+ * the chance of landing in the application.
+ *
+ * A phone keeps wa.me. There is no desktop application to avoid there, and
+ * WhatsApp Web does not run in a phone browser — forcing it would replace a
+ * working share with a dead end.
  */
 $('waLink').addEventListener('click', () => {
   const url = $('linkOut').value;
@@ -620,7 +627,14 @@ $('waLink').addEventListener('click', () => {
   // still be somewhere.
   navigator.clipboard?.writeText(message).catch(() => {});
 
-  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+  const text = encodeURIComponent(message);
+  window.open(
+    isMobileDevice
+      ? `https://wa.me/?text=${text}`
+      : `https://web.whatsapp.com/send?text=${text}`,
+    '_blank',
+    'noopener',
+  );
 });
 
 $('shareLink').addEventListener('click', async () => {
