@@ -13,6 +13,13 @@ services:
     name: mobile-signature
     runtime: node
     plan: free
+    # Frankfurt, not the Oregon default: the senders and signers are in
+    # Lebanon, and a round trip to the US west coast is about 280ms against
+    # roughly 75ms here. That is the difference between a link preview being
+    # fetched before the sender presses send and not — a chat app builds the
+    # card from two requests, and on the far side of the world those two cost
+    # ~2s, which is longer than it is willing to wait.
+    region: frankfurt
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
