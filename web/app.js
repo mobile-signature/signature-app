@@ -606,12 +606,22 @@ function primeLinkPreview(url) {
  * not a destination: it answers with a page offering "Open app" or "Continue
  * to WhatsApp Web", and taking the first hands the message to the desktop
  * application — the one client that sends before it has fetched anything, so
- * the card is lost. Naming web.whatsapp.com removes both the extra page and
- * the chance of landing in the application.
+ * the card is lost.
  *
- * A phone keeps wa.me. There is no desktop application to avoid there, and
- * WhatsApp Web does not run in a phone browser — forcing it would replace a
- * working share with a dead end.
+ * On a computer this opens the installed application through its own protocol.
+ * That is where the card actually appears — tested, it works there and not in
+ * the web client, which shows a placeholder for a pre-filled message and never
+ * replaces it. The protocol link is used rather than wa.me because wa.me is a
+ * redirector that stops at an "Open app / Continue to WhatsApp Web" page;
+ * whatsapp:// goes straight there with nothing in between.
+ *
+ * Nothing here can tell whether that protocol was handled, so the fallback is
+ * inferred: opening an application takes the focus off this page, and if the
+ * focus never leaves, nothing opened and the web client is tried instead. That
+ * covers a computer without WhatsApp installed.
+ *
+ * A phone keeps wa.me, which resolves to its app. WhatsApp Web does not run in
+ * a phone browser, so sending one there would be a dead end.
  */
 $('waLink').addEventListener('click', () => {
   const url = $('linkOut').value;
@@ -628,13 +638,25 @@ $('waLink').addEventListener('click', () => {
   navigator.clipboard?.writeText(message).catch(() => {});
 
   const text = encodeURIComponent(message);
-  window.open(
-    isMobileDevice
-      ? `https://wa.me/?text=${text}`
-      : `https://web.whatsapp.com/send?text=${text}`,
-    '_blank',
-    'noopener',
-  );
+
+  if (isMobileDevice) {
+    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener');
+    return;
+  }
+
+  // Losing focus means something else took it — the application opened.
+  let handled = false;
+  const tookFocus = () => { handled = true; };
+  window.addEventListener('blur', tookFocus, { once: true });
+  document.addEventListener('visibilitychange', tookFocus, { once: true });
+
+  window.location.href = `whatsapp://send?text=${text}`;
+
+  setTimeout(() => {
+    window.removeEventListener('blur', tookFocus);
+    document.removeEventListener('visibilitychange', tookFocus);
+    if (!handled) window.open(`https://web.whatsapp.com/send?text=${text}`, '_blank', 'noopener');
+  }, 1500);
 });
 
 $('shareLink').addEventListener('click', async () => {
