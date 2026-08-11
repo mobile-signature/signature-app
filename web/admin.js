@@ -264,6 +264,49 @@ $('removeGo').addEventListener('click', async () => {
   }
 });
 
+/* ------------------------------------------------- delete-all-files dialog */
+
+function openPurgeAll() {
+  $('purgeMsg').innerHTML = '';
+  $('purgeFrom').value = '';
+  $('purgeTo').value = '';
+  $('purgeGo').disabled = true;
+  show($('purgeSheet'), true);
+  setTimeout(() => $('purgeFrom').focus(), 60);
+}
+
+function closePurgeAll() {
+  show($('purgeSheet'), false);
+}
+
+function refreshPurgeGoState() {
+  $('purgeGo').disabled = !($('purgeFrom').value && $('purgeTo').value);
+}
+
+$('purgeAll').addEventListener('click', openPurgeAll);
+$('purgeCancel').addEventListener('click', closePurgeAll);
+$('purgeFrom').addEventListener('input', refreshPurgeGoState);
+$('purgeTo').addEventListener('input', refreshPurgeGoState);
+
+$('purgeGo').addEventListener('click', async () => {
+  const from = $('purgeFrom').value;
+  const to = $('purgeTo').value;
+  if (!from || !to) return;
+  if (!confirm('Are you sure you want to permanently remove all document files stored in MongoDB between the selected dates?')) {
+    return;
+  }
+  $('purgeGo').disabled = true;
+  try {
+    const out = await api('/api/documents/purge-files', { method: 'POST', body: { from, to } });
+    closePurgeAll();
+    flash(`Removed ${out.purged} document file${out.purged === 1 ? '' : 's'} from MongoDB.`, 'ok');
+    load();
+  } catch (err) {
+    $('purgeMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+    $('purgeGo').disabled = false;
+  }
+});
+
 $('list').addEventListener('click', async (e) => {
   const { copy, revoke, restore, expiry, remove } = e.target.dataset || {};
 

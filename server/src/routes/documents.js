@@ -394,6 +394,47 @@ router.post('/licenses/:serial/documents/delete', requireAdmin, (req, res) => {
   res.json({ ok: true, deleted });
 });
 
+/**
+ * Frees MongoDB storage across every key at once (the admin's own workspace
+ * and every generated licence) by removing stored file bytes for already-
+ * SIGNED documents created in a date range — nothing else.
+ *
+ * Deliberately narrower than the per-key route above: it calls
+ * purgeDocumentFiles() only, never db.deleteDocuments(). The document record
+ * (title, signer, dates, audit events) stays exactly as it is; only the PDF
+ * bytes on disk and in MongoDB are removed. Two reasons this is restricted to
+ * signed documents: an unsigned draft's source file is the document a
+ * recipient still needs to open and sign, so wiping it would break a link
+ * that is still supposed to work — signed documents are a closed transaction
+ * whose bytes are pure storage cost from here on. This mirrors the retention
+ * sweep's own rule (see retention.js) that a signed document's record is
+ * permanent but its access can still be curtailed.
+ */
+router.post('/documents/purge-files', requireAdmin, (req, res) => {
+  const from = new Date(req.body?.from);
+  const to = new Date(req.body?.to);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return res.status(400).json({ error: 'Enter a valid From and To date.' });
+  }
+  // "To" covers its whole day, not just its midnight instant.
+  const toEnd = new Date(to);
+  toEnd.setHours(23, 59, 59, 999);
+  if (toEnd < from) {
+    return res.status(400).json({ error: 'The From date must be before the To date.' });
+  }
+
+  const targets = db.allDocuments().filter((d) => {
+    if (!d.signedAt) return false; // pending drafts are never touched
+    const created = new Date(d.createdAt).getTime();
+    return created >= from.getTime() && created <= toEnd.getTime();
+  });
+
+  targets.forEach(purgeDocumentFiles);
+
+  console.log(`[licenses] file bytes purged for ${targets.length} signed document(s) across all keys (${req.body?.from} to ${req.body?.to})`);
+  res.json({ ok: true, purged: targets.length });
+});
+
 router.get('/activations', requireAdmin, (_req, res) => {
   res.json(db.allActivations());
 });
