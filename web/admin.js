@@ -292,14 +292,14 @@ $('purgeGo').addEventListener('click', async () => {
   const from = $('purgeFrom').value;
   const to = $('purgeTo').value;
   if (!from || !to) return;
-  if (!confirm('Are you sure you want to permanently remove all document files stored in MongoDB between the selected dates?')) {
+  if (!confirm('Are you sure you want to permanently delete every signed document (file, title, signer and audit trail) created between the selected dates? This cannot be undone.')) {
     return;
   }
   $('purgeGo').disabled = true;
   try {
     const out = await api('/api/documents/purge-files', { method: 'POST', body: { from, to } });
     closePurgeAll();
-    flash(`Removed ${out.purged} document file${out.purged === 1 ? '' : 's'} from MongoDB.`, 'ok');
+    flash(`Deleted ${out.deleted} document${out.deleted === 1 ? '' : 's'}.`, 'ok');
     load();
   } catch (err) {
     $('purgeMsg').innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
