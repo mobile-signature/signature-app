@@ -292,7 +292,7 @@ $('purgeGo').addEventListener('click', async () => {
   const from = $('purgeFrom').value;
   const to = $('purgeTo').value;
   if (!from || !to) return;
-  if (!confirm('Are you sure you want to permanently delete every signed document (file, title, signer and audit trail) created between the selected dates? This cannot be undone.')) {
+  if (!confirm('Are you sure you want to permanently delete every document (file, title, signer and audit trail) created between the selected dates, including any that have not been signed yet? Their signing links will stop working. This cannot be undone.')) {
     return;
   }
   $('purgeGo').disabled = true;

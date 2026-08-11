@@ -395,20 +395,18 @@ router.post('/licenses/:serial/documents/delete', requireAdmin, (req, res) => {
 });
 
 /**
- * Deletes every already-SIGNED document created in a date range, across
- * every key at once (the admin's own workspace and every generated licence),
- * to free MongoDB storage. Global counterpart of the per-key route above —
- * same purgeDocumentFiles/revokeTicketsFor/deleteDocuments trio, just
- * unscoped to a single serial.
- *
- * Deliberately still restricted to signed documents: an unsigned draft's
- * source file is the document a recipient still needs to open and sign, so
- * deleting it would break a link that is still supposed to work. Signed
- * documents are a closed transaction, so this is a genuine choice the admin
- * makes knowingly — it also erases the title, signer name and audit trail,
- * not just the file bytes. That is deliberate, confirmed with the admin
- * after an earlier version of this route kept the record and only removed
- * the file, which left the Documents list looking unchanged and confusing.
+ * Deletes every document created in a date range, across every key at once
+ * (the admin's own workspace and every generated licence), to free MongoDB
+ * storage. Global counterpart of both routes above: same
+ * purgeDocumentFiles/revokeTicketsFor/deleteDocuments trio as the per-key
+ * bulk delete, and the same "any status, no exceptions" rule as the
+ * single-document DELETE route a few lines up — a person deliberately naming
+ * a scope to clear is treated the same whether that scope is one document or
+ * many. Confirmed with the admin: an earlier version of this route excluded
+ * documents still awaiting a signature, which meant a range full of pending
+ * work quietly deleted nothing and looked broken. The warning that this can
+ * kill a link someone has not signed yet belongs in the interface, and is
+ * there.
  */
 router.post('/documents/purge-files', requireAdmin, (req, res) => {
   const from = new Date(req.body?.from);
@@ -424,7 +422,6 @@ router.post('/documents/purge-files', requireAdmin, (req, res) => {
   }
 
   const targets = db.allDocuments().filter((d) => {
-    if (!d.signedAt) return false; // pending drafts are never touched
     const created = new Date(d.createdAt).getTime();
     return created >= from.getTime() && created <= toEnd.getTime();
   });
@@ -433,7 +430,7 @@ router.post('/documents/purge-files', requireAdmin, (req, res) => {
   targets.forEach((d) => revokeTicketsFor(d.id));
   const deleted = db.deleteDocuments(targets.map((d) => d.id));
 
-  console.log(`[licenses] ${deleted} signed document(s) deleted across all keys (${req.body?.from} to ${req.body?.to})`);
+  console.log(`[licenses] ${deleted} document(s) deleted across all keys (${req.body?.from} to ${req.body?.to})`);
   res.json({ ok: true, deleted });
 });
 
