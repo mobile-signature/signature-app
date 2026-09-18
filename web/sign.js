@@ -261,6 +261,12 @@ $('pages').addEventListener('click', (e) => {
       ...size,
     };
     placeField('signature', savedSignature.dataUrl, { aspect });
+    // Unlike Sign/Text/Date (deliberately left active so several can be
+    // placed in a row), the saved signature is a single ready-made stamp —
+    // so switch the tool off after one placement to avoid an accidental
+    // second stamp landing on the next tap.
+    activeTool = null;
+    document.querySelectorAll('.tool').forEach((b) => b.classList.remove('active'));
     return;
   }
 
