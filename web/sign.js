@@ -1,4 +1,5 @@
 import * as pdfjs from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.mjs';
+import { loadSavedSignature } from '/mysignature.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.min.mjs';
@@ -11,7 +12,13 @@ let doc = null;
 let activeTool = null;
 let pendingSpot = null;   // { pageIndex, x, y } captured on tap
 let lastSignature = null; // reuse the drawn signature for repeat placements
-const fields = [];        // { id, type, page, x, y, w, h, value, el }
+// The signer's own pre-saved signature image, if this browser has one (see
+// mysignature.js). Loaded once below, outside the render path, since it has
+// nothing to do with the document itself and the tool is only ever used from
+// a tap that happens well after page load.
+let savedSignature = null; // { dataUrl, w, h } | null
+loadSavedSignature().then((s) => { savedSignature = s; });
+const fields = [];        // { id, type, page, x, y, w, h, value, el, aspect }
 
 const DEFAULT_SIZE = {
   signature: { w: 0.34, h: 0.075 },
@@ -213,10 +220,22 @@ for (const btn of document.querySelectorAll('.tool')) {
     if (activeTool === 'pen') {
       updatePenControls();
       toast('Draw on the page to mark it up.');
+    } else if (activeTool === 'mysignature') {
+      toast('Tap the page to place your saved signature.');
     } else if (activeTool) {
       toast(`Tap the page to place your ${activeTool}.`);
     }
   });
+}
+
+// Fixed target width (as a fraction of the page), with the height derived
+// from the image's own pixel aspect ratio — so the box a saved signature is
+// dropped into already matches its proportions, before the user ever touches
+// the resize grip.
+function sizeForImage(rect, aspect, targetW = 0.34) {
+  const wPx = targetW * rect.width;
+  const hPx = wPx / aspect;
+  return { w: targetW, h: clamp(hPx / rect.height, 0.02, 0.9) };
 }
 
 $('pages').addEventListener('click', (e) => {
@@ -226,6 +245,24 @@ $('pages').addEventListener('click', (e) => {
   if (!activeTool || activeTool === 'pen') return;
   const pageEl = e.target.closest('.page');
   if (!pageEl || e.target.closest('.field')) return;
+
+  if (activeTool === 'mysignature') {
+    if (!savedSignature) {
+      return toast('No saved signature on this device yet — add one from "My Signature" in the app, then come back to this link.');
+    }
+    const rect = pageEl.getBoundingClientRect();
+    const aspect = savedSignature.w / savedSignature.h;
+    const size = sizeForImage(rect, aspect);
+    pendingSpot = {
+      pageEl,
+      page: Number(pageEl.dataset.page),
+      x: clamp((e.clientX - rect.left) / rect.width - size.w / 2, 0, 1 - size.w),
+      y: clamp((e.clientY - rect.top) / rect.height - size.h / 2, 0, 1 - size.h),
+      ...size,
+    };
+    placeField('signature', savedSignature.dataUrl, { aspect });
+    return;
+  }
 
   const rect = pageEl.getBoundingClientRect();
   const size = DEFAULT_SIZE[activeTool];
@@ -376,7 +413,7 @@ function updatePenControls() {
 $('penUndo').addEventListener('click', () => mostRecentPenSurface?.undo());
 $('penClear').addEventListener('click', () => mostRecentPenSurface?.clear());
 
-function placeField(type, value) {
+function placeField(type, value, opts = {}) {
   const spot = pendingSpot;
   if (!spot) return;
   pendingSpot = null;
@@ -387,6 +424,10 @@ function placeField(type, value) {
     page: spot.page,
     x: spot.x, y: spot.y, w: spot.w, h: spot.h,
     value,
+    // Set only for a placed image whose own proportions must never be
+    // stretched while resizing (see makeResizable). Absent for everything
+    // else, which keeps their existing free-resize behaviour unchanged.
+    aspect: opts.aspect || null,
   };
 
   const el = document.createElement('div');
@@ -464,6 +505,37 @@ function makeResizable(field, grip, pageEl) {
   grip.addEventListener('pointermove', (e) => {
     if (!start) return;
     e.preventDefault();
+
+    if (field.aspect) {
+      // Follow whichever axis the pointer moved further along in actual
+      // pixels, so both a mostly-horizontal and a mostly-vertical drag work,
+      // then derive the other side from the image's own pixel aspect ratio
+      // so it is never stretched.
+      const dxPx = e.clientX - start.px;
+      const dyPx = e.clientY - start.py;
+      const startWpx = start.w * start.rect.width;
+      const startHpx = start.h * start.rect.height;
+      const wantedWpx = Math.abs(dxPx) >= Math.abs(dyPx)
+        ? startWpx + dxPx
+        : (startHpx + dyPx) * field.aspect;
+      const minWpx = 0.03 * start.rect.width;
+      const maxWpx = (1 - field.x) * start.rect.width;
+      const wPx = clamp(wantedWpx, minWpx, maxWpx);
+      const hPx = wPx / field.aspect;
+      const maxHpx = (1 - field.y) * start.rect.height;
+      // Height overflowed the page: cap by height instead and recompute
+      // width, so the corner stays draggable right up to the page edge.
+      if (hPx > maxHpx) {
+        field.h = maxHpx / start.rect.height;
+        field.w = (maxHpx * field.aspect) / start.rect.width;
+      } else {
+        field.w = wPx / start.rect.width;
+        field.h = hPx / start.rect.height;
+      }
+      paint(field);
+      return;
+    }
+
     field.w = clamp(start.w + (e.clientX - start.px) / start.rect.width, 0.03, 1 - field.x);
     field.h = clamp(start.h + (e.clientY - start.py) / start.rect.height, 0.015, 1 - field.y);
     paint(field);

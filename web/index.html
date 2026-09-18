@@ -29,6 +29,8 @@
     <div class="bar-side bar-actions">
       <button id="destLink" class="hidden"
               style="padding:8px 10px;font-size:13px;color:var(--muted);background:none;border:0;cursor:pointer">Destination</button>
+      <button id="mySigLink" class="hidden"
+              style="padding:8px 10px;font-size:13px;color:var(--muted);background:none;border:0;cursor:pointer">My Signature</button>
       <a href="/admin" id="adminLink" class="hidden"
          style="padding:8px 10px;font-size:13px;color:var(--muted);text-decoration:none">Licences</a>
       <button class="ghost" id="signOut" style="padding:8px 12px;font-size:13px">Deactivate</button>
@@ -165,6 +167,31 @@
       </div>
       <div class="row" style="margin-top:8px">
         <button id="destClose">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Saved signature image, reused when placing a signature on a document
+       instead of drawing one by hand each time. Stored only in this browser
+       (see mysignature.js) — never uploaded to the server. -->
+  <div id="mySigSheet" class="sheet hidden">
+    <div>
+      <h2>My signature</h2>
+      <p>
+        Upload a photo or scan of your signature once, then reuse it whenever
+        you sign a document from this device — no need to draw it or upload
+        it again.
+      </p>
+      <div id="mySigMsg"></div>
+      <div id="mySigPreviewWrap" class="hidden"
+           style="background:var(--surface-2);border-radius:10px;padding:14px;text-align:center;margin-bottom:12px">
+        <img id="mySigPreview" alt="Your saved signature" style="max-width:100%;max-height:120px" />
+      </div>
+      <label for="mySigFile">Signature photo or scan</label>
+      <input id="mySigFile" type="file" accept="image/*" />
+      <div class="row" style="margin-top:12px">
+        <button class="danger" id="mySigRemove" disabled>Remove</button>
+        <button id="mySigClose">Done</button>
       </div>
     </div>
   </div>

@@ -2,6 +2,7 @@ import {
   destinationSupported, loadDestination, chooseDestination,
   clearDestination, saveToDestination,
 } from '/destination.js';
+import { loadSavedSignature, saveSavedSignature, clearSavedSignature } from '/mysignature.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -73,6 +74,9 @@ function render() {
   // Only where the browser can actually be given a folder — elsewhere the
   // button would promise something it cannot deliver.
   show($('destLink'), activated && destinationSupported());
+  // IndexedDB, unlike the folder picker above, works on every browser this
+  // app supports (desktop and mobile alike), so this one has no such gate.
+  show($('mySigLink'), activated);
   if (activated) {
     // The send card has just become visible, which is the moment Chrome fills
     // the access code — so this is the only useful place to undo it.
@@ -249,6 +253,40 @@ async function normalizeImage(file) {
   const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.92));
   if (!blob) throw new Error('That image could not be converted.');
   return blob;
+}
+
+const MAX_SIGNATURE_EDGE = 1200; // a stamp-sized image, not a full document page
+
+// Same decode path as normalizeImage above (handles HEIC/EXIF the same way),
+// kept separate because a signature must NOT be flattened onto a white
+// background like a document page is — it needs to keep any transparency it
+// already has so it overlays the PDF cleanly instead of sitting in a box.
+async function normalizeSignatureImage(file) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+      img.src = url;
+    });
+  }
+
+  const w = bitmap.width || bitmap.naturalWidth;
+  const h = bitmap.height || bitmap.naturalHeight;
+  if (!w || !h) throw new Error('That image could not be read.');
+
+  const scale = Math.min(1, MAX_SIGNATURE_EDGE / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+
+  return { dataUrl: canvas.toDataURL('image/png'), w: canvas.width, h: canvas.height };
 }
 
 // Focus + briefly highlight a required field. Shared by Title (on choosing a
@@ -948,6 +986,46 @@ $('destReset').addEventListener('click', async () => {
   destHandle = null;
   renderDestination();
   $('destMsg').innerHTML = '<div class="msg ok">Back to the Downloads folder.</div>';
+});
+
+/* ----------------------------------------------------------- my signature */
+
+async function renderMySignature() {
+  const sig = await loadSavedSignature();
+  show($('mySigPreviewWrap'), Boolean(sig));
+  if (sig) $('mySigPreview').src = sig.dataUrl;
+  $('mySigRemove').disabled = !sig;
+}
+
+function openMySignature() {
+  $('mySigMsg').innerHTML = '';
+  renderMySignature();
+  show($('mySigSheet'), true);
+}
+
+$('mySigLink').addEventListener('click', openMySignature);
+$('mySigClose').addEventListener('click', () => show($('mySigSheet'), false));
+
+$('mySigFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // so choosing the same file again still fires 'change'
+  if (!file) return;
+  $('mySigMsg').innerHTML = '';
+  try {
+    const { dataUrl, w, h } = await normalizeSignatureImage(file);
+    await saveSavedSignature(dataUrl, w, h);
+    await renderMySignature();
+    $('mySigMsg').innerHTML =
+      '<div class="msg ok">Saved. This signature is ready to use next time you sign a document.</div>';
+  } catch {
+    $('mySigMsg').innerHTML = '<div class="msg err">That image could not be read. Try a JPEG or PNG.</div>';
+  }
+});
+
+$('mySigRemove').addEventListener('click', async () => {
+  await clearSavedSignature();
+  await renderMySignature();
+  $('mySigMsg').innerHTML = '';
 });
 
 /**
